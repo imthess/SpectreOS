@@ -1,10 +1,11 @@
 #include <stdint.h>
-
+#include <shell.h>
 #include "pic.h"
 #include "keyboard.h"
 #include "gdt.h"
 #include "idt.h"
 #include "syscall.h"
+#include "shell.h"
 #include "terminal.h"
 
 static void syscall_test(void)
@@ -31,6 +32,7 @@ void kernel_main(
     (void)multiboot_info;
 
     terminal_clear();
+    shell_init();
 
     terminal_write(
         "SpectreOS kernel starting...\n"
@@ -97,11 +99,7 @@ terminal_write(
         "System calls: OK\n"
     );
 
-    terminal_write(
-        "\nTesting SYS_WRITE...\n"
-    );
-
-    syscall_test();
+    shell_init();
 
     while (1)
     {

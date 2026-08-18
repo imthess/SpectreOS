@@ -24,7 +24,8 @@ KERNEL_OBJECTS = \
     $(BUILD)/idt.o \
     $(BUILD)/interrupts.o \
     $(BUILD)/pic.o \
-    $(BUILD)/syscall.o
+    $(BUILD)/syscall.o\
+	$(BUILD)/shell.o
 
 all: iso
 
@@ -58,6 +59,9 @@ $(BUILD)/pic.o: src/kernel/pic.c | $(BUILD)
 $(BUILD)/syscall.o: src/kernel/syscall.c | $(BUILD)
 	$(CC) $(CFLAGS) -c src/kernel/syscall.c -o $(BUILD)/syscall.o
 
+$(BUILD)/shell.o: src/shell/shell.c | $(BUILD)
+	$(CC) $(CFLAGS) -c src/shell/shell.c -o $(BUILD)/shell.o
+
 $(BUILD)/interrupts_asm.o: src/kernel/interrupts.asm | $(BUILD)
 	$(AS) -f elf32 src/kernel/interrupts.asm -o $(BUILD)/interrupts_asm.o
 
@@ -72,7 +76,7 @@ iso: $(BUILD)/spectreos.bin
 	grub-mkrescue -o iso/spectreos.iso iso
 
 run: iso
-	qemu-system-i386 -cdrom iso/spectreos.iso
+	qemu-system-i386 -cdrom iso/spectreos.iso 
 
 clean:
 	rm -rf build/*

@@ -1,0 +1,162 @@
+#include <stdint.h>
+
+#include "keyboard.h"
+#include "shell.h"
+
+#define KEYBOARD_DATA_PORT    0x60
+#define KEYBOARD_STATUS_PORT  0x64
+
+static inline uint8_t inb(uint16_t port)
+{
+    uint8_t value;
+
+    __asm__ volatile (
+        "inb %1, %0"
+        : "=a"(value)
+        : "Nd"(port)
+    );
+
+    return value;
+}
+
+/*
+ * US keyboard - Scancode Set 1.
+ */
+static const char keyboard_map[128] =
+{
+    0,
+
+    27,
+
+    '1','2','3','4','5','6','7','8','9','0',
+    '-','=',
+    '\b',
+    '\t',
+
+    'q','w','e','r','t','y','u','i','o','p',
+    '[',']',
+    '\n',
+    0,
+    'a','s','d','f','g','h','j','k','l',
+    ';','\'','`',
+
+    0,
+    '\\',
+    'z','x','c','v','b','n','m',
+    ',','.','/',
+
+    0,
+    '*',
+
+    0,
+    ' ',
+
+    0,0,0,0,0,0,
+
+    0,0,0,0,0,0,0,
+
+    '7','8','9','-','4','5','6','+','1','2','3','0','.'
+};
+
+/*
+ * Extended keyboard scancode state.
+ */
+static int extended_scancode = 0;
+
+void keyboard_init(void)
+{
+    /*
+     * Read keyboard status once.
+     */
+    (void)inb(KEYBOARD_STATUS_PORT);
+}
+
+void keyboard_handler(void)
+{
+    uint8_t scancode =
+        inb(KEYBOARD_DATA_PORT);
+
+    /*
+     * Extended key prefix.
+     *
+     * Arrow keys and several other keys
+     * start with E0.
+     */
+    if (scancode == 0xE0)
+    {
+        extended_scancode = 1;
+        return;
+    }
+
+    /*
+     * Ignore key-release events.
+     */
+    if (scancode & 0x80)
+    {
+        extended_scancode = 0;
+        return;
+    }
+
+    /*
+     * Handle extended keys.
+     */
+    if (extended_scancode)
+    {
+        extended_scancode = 0;
+
+        switch (scancode)
+        {
+            case 0x48:
+                shell_handle_key(KEY_UP);
+                break;
+
+            case 0x50:
+                shell_handle_key(KEY_DOWN);
+                break;
+
+            case 0x4B:
+                shell_handle_key(KEY_LEFT);
+                break;
+
+            case 0x4D:
+                shell_handle_key(KEY_RIGHT);
+                break;
+
+            default:
+                break;
+        }
+
+        return;
+    }
+
+    /*
+     * Normal keys.
+     */
+    if (scancode < 128)
+    {
+        char character =
+            keyboard_map[scancode];
+
+        if (character != 0)
+        {
+            if (character == '\b')
+            {
+                shell_handle_key(
+                    KEY_BACKSPACE
+                );
+            }
+            else if (character == '\n')
+            {
+                shell_handle_key(
+                    KEY_ENTER
+                );
+            }
+            else
+            {
+                shell_handle_character(
+                    character
+                );
+            }
+        }
+    }
+}
