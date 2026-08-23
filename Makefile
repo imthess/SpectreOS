@@ -18,14 +18,21 @@ BUILD = build
 KERNEL_OBJECTS = \
     $(BUILD)/boot.o \
     $(BUILD)/kernel.o \
+	$(BUILD)/hardware.o \
+	$(BUILD)/memory.o \
 	$(BUILD)/terminal.o \
 	$(BUILD)/keyboard.o \
     $(BUILD)/gdt.o \
     $(BUILD)/idt.o \
     $(BUILD)/interrupts.o \
     $(BUILD)/pic.o \
+	$(BUILD)/pmm.o \
+	$(BUILD)/paging.o \
     $(BUILD)/syscall.o\
-	$(BUILD)/shell.o
+	$(BUILD)/shell.o\
+	$(BUILD)/thread.o \
+    $(BUILD)/scheduler.o \
+	$(BUILD)/pit.o \
 
 all: iso
 
@@ -37,6 +44,12 @@ $(BUILD)/boot.o: src/boot/boot.asm | $(BUILD)
 
 $(BUILD)/kernel.o: src/kernel/kernel.c | $(BUILD)
 	$(CC) $(CFLAGS) -c src/kernel/kernel.c -o $(BUILD)/kernel.o
+
+$(BUILD)/hardware.o: src/kernel/hardware.c | $(BUILD)
+	$(CC) $(CFLAGS) -c src/kernel/hardware.c -o $(BUILD)/hardware.o
+
+$(BUILD)/memory.o: src/kernel/memory.c | $(BUILD)
+	$(CC) $(CFLAGS) -c src/kernel/memory.c -o $(BUILD)/memory.o
 
 $(BUILD)/terminal.o: src/kernel/terminal.c | $(BUILD)
 	$(CC) $(CFLAGS) -c src/kernel/terminal.c -o $(BUILD)/terminal.o
@@ -56,11 +69,26 @@ $(BUILD)/interrupts.o: src/kernel/interrupts.c | $(BUILD)
 $(BUILD)/pic.o: src/kernel/pic.c | $(BUILD)
 	$(CC) $(CFLAGS) -c src/kernel/pic.c -o $(BUILD)/pic.o
 
+$(BUILD)/pmm.o: src/kernel/pmm.c | $(BUILD)
+	$(CC) $(CFLAGS) -c src/kernel/pmm.c -o $(BUILD)/pmm.o
+
+$(BUILD)/paging.o: src/kernel/paging.c | $(BUILD)
+	$(CC) $(CFLAGS) -c src/kernel/paging.c -o $(BUILD)/paging.o
+
 $(BUILD)/syscall.o: src/kernel/syscall.c | $(BUILD)
 	$(CC) $(CFLAGS) -c src/kernel/syscall.c -o $(BUILD)/syscall.o
 
 $(BUILD)/shell.o: src/shell/shell.c | $(BUILD)
 	$(CC) $(CFLAGS) -c src/shell/shell.c -o $(BUILD)/shell.o
+
+$(BUILD)/thread.o: src/kernel/thread.c | $(BUILD)
+	$(CC) $(CFLAGS) -c src/kernel/thread.c -o $(BUILD)/thread.o
+
+$(BUILD)/scheduler.o: src/kernel/scheduler.c | $(BUILD)
+	$(CC) $(CFLAGS) -c src/kernel/scheduler.c -o $(BUILD)/scheduler.o
+
+$(BUILD)/pit.o: src/kernel/pit.c | $(BUILD)
+	$(CC) $(CFLAGS) -c src/kernel/pit.c -o $(BUILD)/pit.o
 
 $(BUILD)/interrupts_asm.o: src/kernel/interrupts.asm | $(BUILD)
 	$(AS) -f elf32 src/kernel/interrupts.asm -o $(BUILD)/interrupts_asm.o

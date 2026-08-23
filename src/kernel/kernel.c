@@ -1,27 +1,28 @@
 #include <stdint.h>
-#include <shell.h>
 #include "pic.h"
 #include "keyboard.h"
 #include "gdt.h"
 #include "idt.h"
+#include "pmm.h"
 #include "syscall.h"
 #include "shell.h"
 #include "terminal.h"
+#include "paging.h"
+#include "memory.h"
+#include "thread.h"
+#include "pit.h"
 
-static void syscall_test(void)
+
+static void test_thread(void)
 {
-    const char* message =
-        "Hello from a SpectreOS system call!";
-
-    terminal_write(
-        "Before syscall\n"
-    );
-
-    spectre_write(message);
-
-    terminal_write(
-        "\nAfter syscall\n"
-    );
+    while (1)
+    {
+        /*
+         * This thread will eventually run
+         * under the scheduler.
+         */
+        __asm__ volatile ("hlt");
+    }
 }
 
 void kernel_main(
@@ -32,7 +33,6 @@ void kernel_main(
     (void)multiboot_info;
 
     terminal_clear();
-    shell_init();
 
     terminal_write(
         "SpectreOS kernel starting...\n"
@@ -56,6 +56,16 @@ void kernel_main(
         "Multiboot: OK\n"
     );
 
+        /*
+     * Initialize memory information from
+     * the actual Multiboot structure.
+     */
+    memory_init(multiboot_info);
+
+    terminal_write(
+        "Memory detection: OK\n"
+    );
+
     /*
      * Initialize our own GDT.
      */
@@ -76,6 +86,32 @@ void kernel_main(
 
     pic_remap();
 
+    /*
+ * Initialize PIT at 100 Hz.
+ *
+ * This gives approximately one timer interrupt
+ * every 10 milliseconds.
+ */
+pit_init(100);
+
+    /*
+ * Initialize physical memory manager.
+ */
+pmm_init(multiboot_info);
+
+/*
+ * Initialize virtual memory.
+ */
+paging_init();
+
+terminal_write(
+    "Paging: OK\n"
+);
+
+terminal_write(
+    "Memory manager: OK\n"
+);
+
 /*
  * Initialize the keyboard.
  */
@@ -84,6 +120,7 @@ keyboard_init();
 /*
  * Enable IRQ1 (keyboard).
  */
+pic_unmask_irq(0);
 pic_unmask_irq(1);
 
 /*
@@ -98,6 +135,35 @@ terminal_write(
     terminal_write(
         "System calls: OK\n"
     );
+
+    
+    thread_init();
+
+terminal_write(
+    "Threading: OK\n"
+);
+
+scheduler_init();
+
+terminal_write(
+    "Scheduler: OK\n"
+);
+
+int thread_id =
+    thread_create(test_thread);
+
+if (thread_id > 0)
+{
+    terminal_write(
+        "Thread creation: OK\n"
+    );
+}
+else
+{
+    terminal_write(
+        "Thread creation: FAILED\n"
+    );
+}
 
     shell_init();
 

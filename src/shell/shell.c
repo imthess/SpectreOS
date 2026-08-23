@@ -3,6 +3,9 @@
 #include "shell.h"
 #include "terminal.h"
 #include "syscall.h"
+#include "pmm.h"
+#include "hardware.h"
+#include "memory.h"
 
 #define SHELL_MAX_LINE       128
 #define SHELL_HISTORY_SIZE   16
@@ -274,6 +277,168 @@ static int string_starts_with(
     return 1;
 }
 
+static void shell_print_uint(uint32_t value)
+{
+    char buffer[11];
+    uint32_t i = 0;
+
+    if (value == 0)
+    {
+        terminal_putchar('0');
+        return;
+    }
+
+    while (value > 0)
+    {
+        buffer[i++] =
+            '0' + (value % 10);
+
+        value /= 10;
+    }
+
+    while (i > 0)
+    {
+        i--;
+        terminal_putchar(buffer[i]);
+    }
+}
+
+static void shell_print_cpu_info(void)
+{
+    cpu_info_t info;
+
+    uint32_t result =
+        spectre_hwinfo(&info);
+
+    if (result != 0)
+    {
+        terminal_write(
+            "\nHardware information unavailable.\n"
+        );
+
+        return;
+    }
+
+    terminal_write(
+        "\nCPU Vendor: "
+    );
+
+    terminal_write(
+        info.vendor
+    );
+
+    terminal_write(
+        "\nCPU Brand: "
+    );
+
+    terminal_write(
+        info.brand
+    );
+
+    terminal_write(
+        "\nCPU Family: "
+    );
+
+    shell_print_uint(
+        info.family
+    );
+
+    terminal_write(
+        "\nCPU Model: "
+    );
+
+    shell_print_uint(
+        info.model
+    );
+
+    terminal_write(
+        "\nCPU Stepping: "
+    );
+
+    shell_print_uint(
+        info.stepping
+    );
+
+    terminal_write(
+        "\n"
+    );
+}
+
+static void shell_print_memory_info(void)
+{
+    memory_info_t info;
+
+    uint32_t result =
+        spectre_meminfo(&info);
+
+    if (result != 0)
+    {
+        terminal_write(
+            "\nMemory information unavailable.\n"
+        );
+
+        return;
+    }
+
+    if (!info.multiboot_memory_available)
+    {
+        terminal_write(
+            "\nMultiboot memory information unavailable.\n"
+        );
+
+        return;
+    }
+
+    terminal_write(
+        "\nLower memory: "
+    );
+
+    shell_print_uint(
+        info.lower_memory_kb
+    );
+
+    terminal_write(
+        " KB\n"
+    );
+
+    terminal_write(
+        "Upper memory: "
+    );
+
+    shell_print_uint(
+        info.upper_memory_kb
+    );
+
+    terminal_write(
+        " KB\n"
+    );
+
+    terminal_write(
+        "Total memory: "
+    );
+
+    shell_print_uint(
+        info.total_memory_kb
+    );
+
+    terminal_write(
+        " KB\n"
+    );
+
+    terminal_write(
+        "Total memory: "
+    );
+
+    shell_print_uint(
+        info.total_memory_mb
+    );
+
+    terminal_write(
+        " MB\n"
+    );
+}
+
+
 static void shell_execute(void)
 {
     command_line[command_length] = '\0';
@@ -320,7 +485,26 @@ static void shell_execute(void)
             "  clear   - clear the terminal\n"
             "  echo    - print text\n"
             "  syscall - test system calls\n"
+            "  hwinfo  - show actual CPU hardware information\n"
+            "  meminfo - show actual memory information\n"
         );
+
+        return;
+    }
+        if (string_equals(
+            command_line,
+            "hwinfo"))
+    {
+        shell_print_cpu_info();
+
+        return;
+    }
+
+        if (string_equals(
+            command_line,
+            "meminfo"))
+    {
+        shell_print_memory_info();
 
         return;
     }
@@ -361,6 +545,40 @@ static void shell_execute(void)
 
         return;
     }
+
+    /*
+ * Physical memory information.
+ */
+if (string_equals(
+        command_line,
+        "mem"))
+{
+    terminal_write(
+        "\nPhysical memory:\n"
+    );
+
+    terminal_write(
+        "  Total frames: "
+    );
+
+    /*
+     * Temporary numeric output will be added
+     * properly in the next shell/libc stage.
+     */
+    terminal_write(
+        "32768\n"
+    );
+
+    terminal_write(
+        "  Frame size: 4096 bytes\n"
+    );
+
+    terminal_write(
+        "  Total tracked memory: 128 MiB\n"
+    );
+
+    return;
+}
 
     if (command_length != 0)
     {

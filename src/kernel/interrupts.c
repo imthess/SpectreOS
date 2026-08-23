@@ -3,6 +3,8 @@
 #include "keyboard.h"
 #include "interrupts.h"
 #include "pic.h"
+#include "pit.h"
+#include "thread.h"
 
 static volatile uint64_t timer_ticks = 0;
 
@@ -43,6 +45,8 @@ void irq_handler(registers_t* regs)
     {
         case 0:
             timer_ticks++;
+            pit_tick();
+            scheduler_tick();
             break;
             
         case 1:

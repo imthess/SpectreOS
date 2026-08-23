@@ -2,6 +2,8 @@
 
 #include "syscall.h"
 #include "terminal.h"
+#include "hardware.h"
+#include "memory.h"
 
 
 
@@ -20,6 +22,27 @@ static uint32_t syscall_write(const char* text)
 static uint32_t syscall_getpid(void)
 {
     return 1;
+}
+
+static uint32_t syscall_hwinfo(
+    cpu_info_t* info
+)
+{
+    if (info == 0)
+    {
+        return (uint32_t)-1;
+    }
+
+    hardware_cpu_detect(info);
+
+    return 0;
+}
+
+static uint32_t syscall_meminfo(
+    memory_info_t* info
+)
+{
+    return memory_get_info(info);
 }
 
 uint32_t syscall_dispatch(
@@ -50,6 +73,16 @@ uint32_t syscall_dispatch(
 
         case SYS_YIELD:
             return 0;
+
+        case SYS_HWINFO:
+            return syscall_hwinfo(
+                (cpu_info_t*)arg1
+            );
+
+        case SYS_MEMINFO:
+            return syscall_meminfo(
+                (memory_info_t*)arg1
+            );
 
         default:
             return (uint32_t)-1;
@@ -106,6 +139,43 @@ uint32_t spectre_write(const char* text)
         : "a"(SYS_WRITE),
           "b"(text)
         : "memory"
+    );
+
+    return result;
+}
+uint32_t spectre_hwinfo(
+    cpu_info_t* info
+)
+{
+    uint32_t result;
+
+    __asm__ volatile (
+        "mov $5, %%eax\n"
+        "mov %1, %%ebx\n"
+        "int $0x80\n"
+        "mov %%eax, %0\n"
+        : "=r"(result)
+        : "r"(info)
+        : "eax", "ebx"
+    );
+
+    return result;
+}
+
+uint32_t spectre_meminfo(
+    memory_info_t* info
+)
+{
+    uint32_t result;
+
+    __asm__ volatile (
+        "mov $6, %%eax\n"
+        "mov %1, %%ebx\n"
+        "int $0x80\n"
+        "mov %%eax, %0\n"
+        : "=r"(result)
+        : "r"(info)
+        : "eax", "ebx"
     );
 
     return result;

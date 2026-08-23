@@ -2,14 +2,25 @@
 #define SPECTREOS_SYSCALL_H
 
 #include <stdint.h>
+#include "hardware.h"
+#include "memory.h"
 
 #define SYS_EXIT   0
 #define SYS_WRITE  1
 #define SYS_READ   2
 #define SYS_GETPID 3
 #define SYS_YIELD  4
+#define SYS_HWINFO 5
+#define SYS_MEMINFO 6
 
-#define SPECTRE_SYSCALL_MAX 5
+#define SPECTRE_SYSCALL_MAX 7
+
+
+uint32_t spectre_write(const char* text);
+
+uint32_t spectre_hwinfo(cpu_info_t* info);
+
+uint32_t spectre_meminfo(memory_info_t* info);
 
 uint32_t syscall_dispatch(
     uint32_t syscall_number,
