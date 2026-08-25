@@ -398,15 +398,24 @@ irq15:
 irq_common:
     pusha
 
+    ; Pass the address of the complete IRQ frame.
     push esp
     call irq_handler
     add esp, 4
 
+    ; EAX contains the ESP of the thread
+    ; that should continue execution.
+    mov esp, eax
+
+    ; Restore that thread's registers.
     popa
 
+    ; Remove int_no and err_code.
     add esp, 8
 
     iretd
+
+
 ; ============================================================
 ; SPECTREOS SYSTEM CALL
 ;

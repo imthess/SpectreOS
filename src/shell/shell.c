@@ -5,6 +5,7 @@
 #include "syscall.h"
 #include "pmm.h"
 #include "hardware.h"
+#include "pit.h"
 #include "memory.h"
 
 #define SHELL_MAX_LINE       128
@@ -576,6 +577,48 @@ if (string_equals(
     terminal_write(
         "  Total tracked memory: 128 MiB\n"
     );
+
+    return;
+}
+
+    if (string_equals(
+        command_line,
+        "ticks"))
+{
+    uint32_t ticks = pit_get_ticks();
+
+    terminal_write("\nPIT ticks: ");
+
+    char buffer[16];
+    int i = 0;
+
+    if (ticks == 0)
+    {
+        buffer[i++] = '0';
+    }
+    else
+    {
+        char reversed[16];
+        int j = 0;
+
+        while (ticks > 0)
+        {
+            reversed[j++] =
+                '0' + (ticks % 10);
+
+            ticks /= 10;
+        }
+
+        while (j > 0)
+        {
+            buffer[i++] =
+                reversed[--j];
+        }
+    }
+
+    buffer[i] = '\0';
+
+    terminal_write(buffer);
 
     return;
 }

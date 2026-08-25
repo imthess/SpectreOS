@@ -232,3 +232,30 @@ void terminal_write(const char* str)
         str++;
     }
 }
+
+void terminal_write_uint(uint32_t value)
+{
+    char buffer[11];
+    uint32_t i = 0;
+
+    if (value == 0)
+    {
+        terminal_putchar('0');
+        return;
+    }
+
+    while (value > 0)
+    {
+        buffer[i++] =
+            (char)('0' + (value % 10));
+
+        value /= 10;
+    }
+
+    while (i > 0)
+    {
+        terminal_putchar(
+            buffer[--i]
+        );
+    }
+}

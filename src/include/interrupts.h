@@ -22,12 +22,13 @@ typedef struct
     uint32_t eflags;
     uint32_t useresp;
     uint32_t ss;
+
 } registers_t;
 
 void interrupts_init(void);
 
 void exception_handler(registers_t* regs);
 
-void irq_handler(registers_t* regs);
+uint32_t irq_handler(registers_t* regs);
 
 #endif

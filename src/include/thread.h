@@ -1,3 +1,4 @@
+
 #ifndef SPECTREOS_THREAD_H
 #define SPECTREOS_THREAD_H
 
@@ -39,6 +40,8 @@ typedef struct
 
     thread_context_t context;
 
+    uint64_t run_ticks;
+
     uint8_t stack[THREAD_STACK_SIZE];
 
 } thread_t;
@@ -49,15 +52,20 @@ int thread_create(void (*entry)(void));
 
 thread_t* thread_get_current(void);
 
+thread_t* thread_get(uint32_t index);
+
 uint32_t thread_get_count(void);
 
-/*
- * Scheduler.
- */
-void scheduler_init(void);
+void thread_set_current(uint32_t index);
 
-void scheduler_tick(void);
+void thread_set_state(
+    uint32_t index,
+    thread_state_t state
+);
 
-thread_t* scheduler_get_current(void);
+const char* thread_state_name(
+    thread_state_t state
+);
 
 #endif
+

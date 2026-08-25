@@ -1,4 +1,6 @@
+
 #include <stdint.h>
+
 #include "pic.h"
 #include "keyboard.h"
 #include "gdt.h"
@@ -8,21 +10,93 @@
 #include "shell.h"
 #include "terminal.h"
 #include "paging.h"
+#include "pit.h"
 #include "memory.h"
 #include "thread.h"
-#include "pit.h"
+#include "scheduler.h"
 
 
-static void test_thread(void)
+static volatile uint32_t thread_a_counter = 0;
+static volatile uint32_t thread_b_counter = 0;
+
+
+static void test_thread_a(void)
 {
     while (1)
     {
-        /*
-         * This thread will eventually run
-         * under the scheduler.
-         */
-        __asm__ volatile ("hlt");
+        thread_a_counter++;
+
+        for (volatile uint32_t i = 0;
+             i < 100000;
+             i++)
+        {
+        }
     }
+}
+
+
+static void test_thread_b(void)
+{
+    while (1)
+    {
+        thread_b_counter++;
+
+        for (volatile uint32_t i = 0;
+             i < 100000;
+             i++)
+        {
+        }
+    }
+}
+
+
+static void scheduler_status(void)
+{
+    uint32_t ticks =
+        pit_get_ticks();
+
+    uint32_t seconds =
+        ticks / 100;
+
+    uint32_t milliseconds =
+        (ticks % 100) * 10;
+
+    terminal_write(
+        "\nScheduler status:\n"
+    );
+
+    terminal_write(
+        "  PIT ticks: "
+    );
+
+    terminal_write_uint(
+        ticks
+    );
+
+    terminal_write(
+        "\n  Time: "
+    );
+
+    terminal_write_uint(
+        seconds
+    );
+
+    terminal_write(
+        "."
+    );
+
+    if (milliseconds < 10)
+    {
+        terminal_write("0");
+    }
+
+    terminal_write_uint(
+        milliseconds
+    );
+
+    terminal_write(
+        " seconds\n"
+    );
 }
 
 void kernel_main(
@@ -30,13 +104,12 @@ void kernel_main(
     uint32_t multiboot_info
 )
 {
-    (void)multiboot_info;
-
     terminal_clear();
 
     terminal_write(
         "SpectreOS kernel starting...\n"
     );
+
 
     if (multiboot_magic != 0x2BADB002)
     {
@@ -52,123 +125,129 @@ void kernel_main(
         }
     }
 
+
     terminal_write(
         "Multiboot: OK\n"
     );
 
-        /*
-     * Initialize memory information from
-     * the actual Multiboot structure.
-     */
-    memory_init(multiboot_info);
+
+    memory_init(
+        multiboot_info
+    );
 
     terminal_write(
         "Memory detection: OK\n"
     );
 
-    /*
-     * Initialize our own GDT.
-     */
+
     gdt_init();
 
     terminal_write(
         "GDT: OK\n"
     );
 
-    /*
-     * Initialize the Interrupt Descriptor Table.
-     */
+
     idt_init();
 
     terminal_write(
         "IDT: OK\n"
     );
 
+
     pic_remap();
 
-    /*
- * Initialize PIT at 100 Hz.
- *
- * This gives approximately one timer interrupt
- * every 10 milliseconds.
- */
-pit_init(100);
 
-    /*
- * Initialize physical memory manager.
- */
-pmm_init(multiboot_info);
+    pit_init(100);
 
-/*
- * Initialize virtual memory.
- */
-paging_init();
+    pic_unmask_irq(0);
 
-terminal_write(
-    "Paging: OK\n"
-);
 
-terminal_write(
-    "Memory manager: OK\n"
-);
+    pmm_init(
+        multiboot_info
+    );
 
-/*
- * Initialize the keyboard.
- */
-keyboard_init();
+    paging_init();
 
-/*
- * Enable IRQ1 (keyboard).
- */
-pic_unmask_irq(0);
-pic_unmask_irq(1);
+    terminal_write(
+        "Paging: OK\n"
+    );
 
-/*
- * Enable CPU hardware interrupts.
- */
-__asm__ volatile ("sti");
+    terminal_write(
+        "Memory manager: OK\n"
+    );
 
-terminal_write(
-    "Interrupts: OK\n"
-);
+
+    keyboard_init();
+
+    pic_unmask_irq(1);
+
+
+    thread_init();
+
+    terminal_write(
+        "Threading: OK\n"
+    );
+
+
+    scheduler_init();
+
+    terminal_write(
+        "Scheduler: OK\n"
+    );
+
+
+    int thread_a =
+        thread_create(
+            test_thread_a
+        );
+
+    int thread_b =
+        thread_create(
+            test_thread_b
+        );
+
+
+    if (
+        thread_a > 0 &&
+        thread_b > 0
+    )
+    {
+        terminal_write(
+            "Thread creation: OK\n"
+        );
+    }
+    else
+    {
+        terminal_write(
+            "Thread creation: FAILED\n"
+        );
+    }
+
+
+    __asm__ volatile ("sti");
+
+
+    terminal_write(
+        "Interrupts: OK\n"
+    );
 
     terminal_write(
         "System calls: OK\n"
     );
 
-    
-    thread_init();
-
-terminal_write(
-    "Threading: OK\n"
-);
-
-scheduler_init();
-
-terminal_write(
-    "Scheduler: OK\n"
-);
-
-int thread_id =
-    thread_create(test_thread);
-
-if (thread_id > 0)
-{
     terminal_write(
-        "Thread creation: OK\n"
+        "Round-Robin scheduler: ACTIVE\n"
     );
-}
-else
-{
-    terminal_write(
-        "Thread creation: FAILED\n"
-    );
-}
+
 
     shell_init();
 
+
     while (1)
     {
+        scheduler_status();
+
         __asm__ volatile ("hlt");
     }
 }
+
