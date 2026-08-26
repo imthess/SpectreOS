@@ -1,184 +1,236 @@
-
 #include <stdint.h>
 
 #include "scheduler.h"
 #include "thread.h"
 
 static int32_t scheduler_current = -1;
+static scheduler_policy_t scheduler_policy =
+    SCHEDULER_ROUND_ROBIN;
 
-static uint64_t scheduler_switches = 0;
+static uint32_t scheduler_switches = 0;
 
-
-static int find_next_thread(void)
+/*
+ * Round-Robin:
+ * Select the next READY thread after current.
+ */
+static int32_t find_round_robin(void)
 {
-    if (thread_get_count() == 0)
-    {
-        return -1;
-    }
+    int32_t current =
+        scheduler_current;
 
-    uint32_t start = 0;
-
-    if (scheduler_current >= 0)
-    {
-        start =
-            (uint32_t)scheduler_current + 1;
-    }
-
-    for (uint32_t offset = 0;
-         offset < THREAD_MAX;
+    for (uint32_t offset = 1;
+         offset <= THREAD_MAX;
          offset++)
     {
-        uint32_t index =
-            (start + offset) % THREAD_MAX;
+        uint32_t index;
+
+        if (current < 0)
+        {
+            index = offset - 1;
+        }
+        else
+        {
+            index =
+                ((uint32_t)current + offset)
+                % THREAD_MAX;
+        }
 
         thread_t* thread =
             thread_get(index);
 
-        if (thread == 0)
+        if (thread != 0 &&
+            thread->state == THREAD_READY)
         {
-            continue;
-        }
-
-        if (
-            thread->state == THREAD_READY ||
-            thread->state == THREAD_RUNNING
-        )
-        {
-            return (int)index;
+            return (int32_t)index;
         }
     }
 
     return -1;
 }
 
+/*
+ * Priority:
+ * Highest priority number wins.
+ */
+static int32_t find_priority(void)
+{
+    int32_t best = -1;
+    uint32_t best_priority = 0;
+
+    for (uint32_t i = 0;
+         i < THREAD_MAX;
+         i++)
+    {
+        thread_t* thread =
+            thread_get(i);
+
+        if (thread == 0 ||
+            thread->state != THREAD_READY)
+        {
+            continue;
+        }
+
+        if (best < 0 ||
+            thread->priority > best_priority)
+        {
+            best = (int32_t)i;
+            best_priority =
+                thread->priority;
+        }
+    }
+
+    return best;
+}
+
+/*
+ * FCFS:
+ * Select the READY thread with the
+ * earliest creation order.
+ */
+static int32_t find_fcfs(void)
+{
+    int32_t best = -1;
+    uint32_t best_order = 0;
+
+    for (uint32_t i = 0;
+         i < THREAD_MAX;
+         i++)
+    {
+        thread_t* thread =
+            thread_get(i);
+
+        if (thread == 0 ||
+            thread->state != THREAD_READY)
+        {
+            continue;
+        }
+
+        if (best < 0 ||
+            thread->creation_order <
+            best_order)
+        {
+            best = (int32_t)i;
+            best_order =
+                thread->creation_order;
+        }
+    }
+
+    return best;
+}
+
+static int32_t find_next_thread(void)
+{
+    switch (scheduler_policy)
+    {
+        case SCHEDULER_PRIORITY:
+            return find_priority();
+
+        case SCHEDULER_FCFS:
+            return find_fcfs();
+
+        case SCHEDULER_ROUND_ROBIN:
+        default:
+            return find_round_robin();
+    }
+}
 
 void scheduler_init(void)
 {
-    scheduler_current = -1;
-    scheduler_switches = 0;
+    scheduler_current = 0;
 }
 
-
-uint32_t scheduler_tick(
-    uint32_t current_esp
+void scheduler_set_policy(
+    scheduler_policy_t policy
 )
 {
-    if (thread_get_count() == 0)
+    if (policy > SCHEDULER_FCFS)
     {
-        return current_esp;
+        return;
     }
 
-    /*
-     * First scheduling event.
-     */
-    if (scheduler_current < 0)
-    {
-        int next =
-            find_next_thread();
-
-        if (next < 0)
-        {
-            return current_esp;
-        }
-
-        scheduler_current =
-            next;
-
-        thread_set_current(
-            (uint32_t)next
-        );
-
-        thread_set_state(
-            (uint32_t)next,
-            THREAD_RUNNING
-        );
-
-        thread_t* thread =
-            thread_get((uint32_t)next);
-
-        if (thread == 0)
-        {
-            return current_esp;
-        }
-
-        scheduler_switches++;
-
-        return thread->context.esp;
-    }
-
-
-    /*
-     * Save current thread context.
-     */
-    thread_t* current =
-        thread_get(
-            (uint32_t)scheduler_current
-        );
-
-    if (current != 0)
-    {
-        current->context.esp =
-            current_esp;
-
-        current->run_ticks++;
-
-        if (current->state ==
-            THREAD_RUNNING)
-        {
-            current->state =
-                THREAD_READY;
-        }
-    }
-
-
-    /*
-     * Select next thread.
-     */
-    int next =
-        find_next_thread();
-
-    if (next < 0)
-    {
-        if (current != 0)
-        {
-            current->state =
-                THREAD_RUNNING;
-        }
-
-        return current_esp;
-    }
-
-
-    scheduler_current =
-        next;
-
-    thread_set_current(
-        (uint32_t)next
-    );
-
-    thread_set_state(
-        (uint32_t)next,
-        THREAD_RUNNING
-    );
-
-    thread_t* next_thread =
-        thread_get(
-            (uint32_t)next
-        );
-
-    if (next_thread == 0)
-    {
-        return current_esp;
-    }
-
-    scheduler_switches++;
-
-    return next_thread->context.esp;
+    scheduler_policy = policy;
 }
 
+scheduler_policy_t scheduler_get_policy(void)
+{
+    return scheduler_policy;
+}
 
-uint64_t scheduler_get_switches(void)
+uint32_t scheduler_tick(uint32_t current_esp)
+{
+    /*
+     * Save interrupted context.
+     */
+    if (scheduler_current >= 0)
+    {
+        thread_t* current =
+            thread_get(
+                (uint32_t)scheduler_current
+            );
+
+        if (current != 0)
+        {
+            current->saved_esp =
+                current_esp;
+
+            if (current->state ==
+                THREAD_RUNNING)
+            {
+                current->state =
+                    THREAD_READY;
+            }
+        }
+    }
+
+    int32_t next =
+        find_next_thread();
+
+    /*
+     * No runnable thread.
+     */
+    if (next < 0)
+    {
+        return current_esp;
+    }
+
+    if (next != scheduler_current)
+    {
+        scheduler_switches++;
+    }
+
+    scheduler_current = next;
+
+    thread_t* selected =
+        thread_get(
+            (uint32_t)next
+        );
+
+    if (selected == 0)
+    {
+        return current_esp;
+    }
+
+    selected->state =
+        THREAD_RUNNING;
+
+    selected->runs++;
+
+    return selected->saved_esp;
+}
+
+thread_t* scheduler_get_current(void)
+{
+    if (scheduler_current < 0)
+    {
+        return 0;
+    }
+
+    return thread_get(
+        (uint32_t)scheduler_current
+    );
+}
+
+uint32_t scheduler_get_switches(void)
 {
     return scheduler_switches;
 }
-

@@ -3,6 +3,7 @@
 #include "shell.h"
 #include "terminal.h"
 #include "syscall.h"
+#include "thread.h"
 #include "pmm.h"
 #include "hardware.h"
 #include "pit.h"
@@ -486,6 +487,7 @@ static void shell_execute(void)
             "  clear   - clear the terminal\n"
             "  echo    - print text\n"
             "  syscall - test system calls\n"
+            "  threads - show thread states\n"
             "  hwinfo  - show actual CPU hardware information\n"
             "  meminfo - show actual memory information\n"
         );
@@ -622,6 +624,63 @@ if (string_equals(
 
     return;
 }
+
+    if (string_equals(
+            command_line,
+            "threads"))
+    {
+        terminal_write(
+            "\nThreads:\n"
+        );
+
+        for (uint32_t i = 0;
+             i < THREAD_MAX;
+             i++)
+        {
+            thread_t* thread =
+                thread_get(i);
+
+            if (thread == 0)
+            {
+                continue;
+            }
+
+            terminal_write("  ID ");
+
+            terminal_write_uint(
+                thread->id
+            );
+
+            terminal_write(": ");
+
+            switch (thread->state)
+            {
+                case THREAD_READY:
+                    terminal_write("READY");
+                    break;
+
+                case THREAD_RUNNING:
+                    terminal_write("RUNNING");
+                    break;
+
+                case THREAD_BLOCKED:
+                    terminal_write("BLOCKED");
+                    break;
+
+                case THREAD_TERMINATED:
+                    terminal_write("TERMINATED");
+                    break;
+
+                default:
+                    terminal_write("UNKNOWN");
+                    break;
+            }
+
+            terminal_write("\n");
+        }
+
+        return;
+    }
 
     if (command_length != 0)
     {

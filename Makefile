@@ -33,6 +33,7 @@ KERNEL_OBJECTS = \
 	$(BUILD)/thread.o \
     $(BUILD)/scheduler.o \
 	$(BUILD)/pit.o \
+	$(BUILD)/sync.o \
 
 all: iso
 
@@ -87,6 +88,9 @@ $(BUILD)/thread.o: src/kernel/thread.c | $(BUILD)
 $(BUILD)/scheduler.o: src/kernel/scheduler.c | $(BUILD)
 	$(CC) $(CFLAGS) -c src/kernel/scheduler.c -o $(BUILD)/scheduler.o
 
+$(BUILD)/sync.o: src/kernel/sync.c | $(BUILD)
+	$(CC) $(CFLAGS) -c src/kernel/sync.c -o $(BUILD)/sync.o
+	
 $(BUILD)/pit.o: src/kernel/pit.c | $(BUILD)
 	$(CC) $(CFLAGS) -c src/kernel/pit.c -o $(BUILD)/pit.o
 

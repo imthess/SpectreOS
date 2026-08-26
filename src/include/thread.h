@@ -1,4 +1,3 @@
-
 #ifndef SPECTREOS_THREAD_H
 #define SPECTREOS_THREAD_H
 
@@ -18,54 +17,56 @@ typedef enum
 
 typedef struct
 {
-    uint32_t edi;
-    uint32_t esi;
-    uint32_t ebp;
-    uint32_t esp;
-
-    uint32_t ebx;
-    uint32_t edx;
-    uint32_t ecx;
-    uint32_t eax;
-
-    uint32_t eip;
-    uint32_t eflags;
-} thread_context_t;
-
-typedef struct
-{
     uint32_t id;
-
     thread_state_t state;
-
-    thread_context_t context;
-
-    uint64_t run_ticks;
-
+    uint32_t saved_esp;
+    uint32_t switches;
+    uint32_t runs;
+    uint32_t priority;
+    uint32_t creation_order;
     uint8_t stack[THREAD_STACK_SIZE];
-
 } thread_t;
 
 void thread_init(void);
 
 int thread_create(void (*entry)(void));
 
-thread_t* thread_get_current(void);
+void thread_exit(void);
 
 thread_t* thread_get(uint32_t index);
 
-uint32_t thread_get_count(void);
+thread_t* thread_get_current(void);
 
-void thread_set_current(uint32_t index);
+int32_t thread_get_current_index(void);
+
+void thread_set_current(int32_t index);
 
 void thread_set_state(
     uint32_t index,
     thread_state_t state
 );
 
-const char* thread_state_name(
-    thread_state_t state
+uint32_t thread_get_count(void);
+
+uint32_t thread_get_switches(
+    uint32_t index
 );
 
+uint32_t thread_get_runs(
+    uint32_t index
+);
+
+void thread_block_current(void);
+
+void thread_unblock(uint32_t index);
+
+void thread_mark_running(uint32_t index);
+
+thread_state_t thread_get_state(uint32_t index);
+
 #endif
+
+/* Thread blocking / wakeup */
+void thread_wake(uint32_t thread_id);
+void thread_wake_one(void);
 

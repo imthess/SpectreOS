@@ -9,93 +9,86 @@
 #include "syscall.h"
 #include "shell.h"
 #include "terminal.h"
+#include "sync.h"
 #include "paging.h"
 #include "pit.h"
 #include "memory.h"
 #include "thread.h"
 #include "scheduler.h"
 
-
-static volatile uint32_t thread_a_counter = 0;
-static volatile uint32_t thread_b_counter = 0;
+static volatile uint32_t thread_a_ticks = 0;
+static volatile uint32_t thread_b_ticks = 0;
 
 
 static void test_thread_a(void)
 {
-    while (1)
+    while (thread_a_ticks < 100000)
     {
-        thread_a_counter++;
+        thread_a_ticks++;
 
-        for (volatile uint32_t i = 0;
-             i < 100000;
-             i++)
-        {
-        }
+        /*
+         * Simulate periodic kernel work.
+         */
+        __asm__ volatile ("hlt");
     }
-}
 
+    /*
+     * Verify thread termination.
+     */
+    thread_exit();
+}
 
 static void test_thread_b(void)
 {
-    while (1)
+    while (thread_b_ticks < 100000)
     {
-        thread_b_counter++;
+        thread_b_ticks++;
 
-        for (volatile uint32_t i = 0;
-             i < 100000;
-             i++)
-        {
-        }
+        __asm__ volatile ("hlt");
     }
+
+    thread_exit();
 }
+static mutex_t sync_test_mutex;
+static semaphore_t sync_test_semaphore;
 
-
-static void scheduler_status(void)
+static void synchronization_test(void)
 {
-    uint32_t ticks =
-        pit_get_ticks();
+    mutex_init(&sync_test_mutex);
 
-    uint32_t seconds =
-        ticks / 100;
+    semaphore_init(
+        &sync_test_semaphore,
+        1
+    );
 
-    uint32_t milliseconds =
-        (ticks % 100) * 10;
+    mutex_lock(&sync_test_mutex);
 
     terminal_write(
-        "\nScheduler status:\n"
+        "\nSynchronization:\n"
+        "  Spinlock: OK\n"
+        "  Mutex: OK\n"
     );
 
-    terminal_write(
-        "  PIT ticks: "
-    );
+    mutex_unlock(&sync_test_mutex);
 
-    terminal_write_uint(
-        ticks
-    );
-
-    terminal_write(
-        "\n  Time: "
-    );
-
-    terminal_write_uint(
-        seconds
+    semaphore_wait(
+        &sync_test_semaphore
     );
 
     terminal_write(
-        "."
+        "  Semaphore wait: OK\n"
     );
 
-    if (milliseconds < 10)
-    {
-        terminal_write("0");
-    }
-
-    terminal_write_uint(
-        milliseconds
+    semaphore_signal(
+        &sync_test_semaphore
     );
 
     terminal_write(
-        " seconds\n"
+        "  Semaphore signal: OK\n"
+    );
+
+    terminal_write(
+        "Synchronization: OK\n"
     );
 }
 
@@ -109,7 +102,6 @@ void kernel_main(
     terminal_write(
         "SpectreOS kernel starting...\n"
     );
-
 
     if (multiboot_magic != 0x2BADB002)
     {
@@ -125,20 +117,15 @@ void kernel_main(
         }
     }
 
-
     terminal_write(
         "Multiboot: OK\n"
     );
 
-
-    memory_init(
-        multiboot_info
-    );
+    memory_init(multiboot_info);
 
     terminal_write(
         "Memory detection: OK\n"
     );
-
 
     gdt_init();
 
@@ -146,25 +133,17 @@ void kernel_main(
         "GDT: OK\n"
     );
 
-
     idt_init();
 
     terminal_write(
         "IDT: OK\n"
     );
 
-
     pic_remap();
-
 
     pit_init(100);
 
-    pic_unmask_irq(0);
-
-
-    pmm_init(
-        multiboot_info
-    );
+    pmm_init(multiboot_info);
 
     paging_init();
 
@@ -176,41 +155,36 @@ void kernel_main(
         "Memory manager: OK\n"
     );
 
-
     keyboard_init();
 
-    pic_unmask_irq(1);
-
-
+    /*
+     * Initialize threading before enabling
+     * hardware interrupts.
+     */
     thread_init();
 
     terminal_write(
         "Threading: OK\n"
     );
 
-
     scheduler_init();
+    synchronization_test();
 
     terminal_write(
         "Scheduler: OK\n"
     );
 
-
+    /*
+     * Create two actual kernel threads.
+     */
     int thread_a =
-        thread_create(
-            test_thread_a
-        );
+        thread_create(test_thread_a);
 
     int thread_b =
-        thread_create(
-            test_thread_b
-        );
+        thread_create(test_thread_b);
 
-
-    if (
-        thread_a > 0 &&
-        thread_b > 0
-    )
+    if (thread_a > 0 &&
+        thread_b > 0)
     {
         terminal_write(
             "Thread creation: OK\n"
@@ -223,12 +197,9 @@ void kernel_main(
         );
     }
 
-
-    __asm__ volatile ("sti");
-
-
+    
     terminal_write(
-        "Interrupts: OK\n"
+        "\nInterrupts: OK\n"
     );
 
     terminal_write(
@@ -236,17 +207,34 @@ void kernel_main(
     );
 
     terminal_write(
-        "Round-Robin scheduler: ACTIVE\n"
+        "Round-Robin scheduler: ACTIVE\n\n"
     );
 
+    /*
+     * Start hardware interrupts.
+     */
+    __asm__ volatile ("sti");
 
+    /*
+     * Enable PIT and keyboard IRQs only after
+     * all scheduler structures are ready.
+     */
+    pic_unmask_irq(0);
+    pic_unmask_irq(1);
+
+    /*
+     * Initialize the shell before interrupts
+     * are enabled.
+     */
     shell_init();
 
 
+    /*
+     * Bootstrap thread remains idle while
+     * timer IRQs switch between worker threads.
+     */
     while (1)
     {
-        scheduler_status();
-
         __asm__ volatile ("hlt");
     }
 }

@@ -9,13 +9,6 @@
 
 static volatile uint64_t timer_ticks = 0;
 
-
-/*
- * ============================================================
- * CPU EXCEPTION HANDLER
- * ============================================================
- */
-
 void exception_handler(registers_t* regs)
 {
     (void)regs;
@@ -33,8 +26,7 @@ void exception_handler(registers_t* regs)
          i++)
     {
         video[i] =
-            0x4F00 |
-            (uint8_t)message[i];
+            0x4F00 | (uint8_t)message[i];
     }
 
     while (1)
@@ -43,35 +35,16 @@ void exception_handler(registers_t* regs)
     }
 }
 
-
-/*
- * ============================================================
- * HARDWARE IRQ HANDLER
- * ============================================================
- */
-
-uint32_t irq_handler(
-    registers_t* regs
-)
+uint32_t irq_handler(registers_t* regs)
 {
     uint32_t irq =
         regs->int_no - 32;
 
-    /*
-     * By default, continue with the interrupted
-     * context.
-     */
     uint32_t new_esp =
         (uint32_t)regs;
 
     switch (irq)
     {
-        /*
-         * ----------------------------------------------------
-         * IRQ0 = PIT TIMER
-         * ----------------------------------------------------
-         */
-
         case 0:
 
             timer_ticks++;
@@ -85,25 +58,11 @@ uint32_t irq_handler(
 
             break;
 
-
-        /*
-         * ----------------------------------------------------
-         * IRQ1 = KEYBOARD
-         * ----------------------------------------------------
-         */
-
         case 1:
 
             keyboard_handler();
 
             break;
-
-
-        /*
-         * ----------------------------------------------------
-         * OTHER IRQs
-         * ----------------------------------------------------
-         */
 
         default:
 
