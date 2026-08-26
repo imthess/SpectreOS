@@ -308,34 +308,3 @@ void thread_wake_one(void)
         }
     }
 }
-
-
-void thread_record_run(uint32_t index)
-{
-    if (index >= THREAD_MAX)
-    {
-        return;
-    }
-
-    if (threads[index].state == THREAD_UNUSED)
-    {
-        return;
-    }
-
-    threads[index].runs++;
-}
-
-void thread_record_switch(uint32_t index)
-{
-    if (index >= THREAD_MAX)
-    {
-        return;
-    }
-
-    if (threads[index].state == THREAD_UNUSED)
-    {
-        return;
-    }
-
-    threads[index].switches++;
-}

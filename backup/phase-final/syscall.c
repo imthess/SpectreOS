@@ -1,4 +1,5 @@
 #include <stdint.h>
+
 #include "syscall.h"
 #include "terminal.h"
 #include "hardware.h"
@@ -32,7 +33,7 @@ static uint32_t syscall_hwinfo(
         return (uint32_t)-1;
     }
 
-    hardware_get_cpu_info(info);
+    hardware_cpu_detect(info);
 
     return 0;
 }

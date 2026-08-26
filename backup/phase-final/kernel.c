@@ -14,94 +14,11 @@
 #include "pit.h"
 #include "memory.h"
 #include "thread.h"
-#include "hardware.h"
 #include "scheduler.h"
 
 static volatile uint32_t thread_a_ticks = 0;
 static volatile uint32_t thread_b_ticks = 0;
 
-
-
-static void kernel_status(void)
-{
-    cpu_info_t cpu;
-
-    hardware_get_cpu_info(
-        &cpu
-    );
-
-    terminal_write(
-        "\n=== SpectreOS Status ===\n"
-    );
-
-    terminal_write(
-        "CPU Vendor: "
-    );
-
-    terminal_write(
-        cpu.vendor
-    );
-
-    terminal_write(
-        "\nCPU Brand: "
-    );
-
-    terminal_write(
-        cpu.brand
-    );
-
-    terminal_write(
-        "\nCPU Family: "
-    );
-
-    terminal_write_uint(
-        cpu.family
-    );
-
-    terminal_write(
-        "\nCPU Model: "
-    );
-
-    terminal_write_uint(
-        cpu.model
-    );
-
-    terminal_write(
-        "\nCPU Stepping: "
-    );
-
-    terminal_write_uint(
-        cpu.stepping
-    );
-
-    terminal_write(
-        "\nScheduler switches: "
-    );
-
-    terminal_write_uint(
-        scheduler_get_switches()
-    );
-
-    terminal_write(
-        "\nThreads: "
-    );
-
-    terminal_write_uint(
-        thread_get_count()
-    );
-
-    terminal_write(
-        "\nPIT ticks: "
-    );
-
-    terminal_write_uint(
-        pit_get_ticks()
-    );
-
-    terminal_write(
-        "\n========================\n"
-    );
-}
 
 static void test_thread_a(void)
 {
@@ -181,8 +98,6 @@ void kernel_main(
 )
 {
     terminal_clear();
-
-    hardware_init();
 
     terminal_write(
         "SpectreOS kernel starting...\n"

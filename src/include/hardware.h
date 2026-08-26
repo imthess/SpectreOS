@@ -5,20 +5,21 @@
 
 typedef struct
 {
-    char vendor[13];
-    char brand[49];
-
-    uint32_t eax_max_basic;
-    uint32_t eax_max_extended;
-
     uint32_t family;
     uint32_t model;
     uint32_t stepping;
 
-    uint32_t features_ecx;
-    uint32_t features_edx;
+    char vendor[13];
+    char brand[49];
+
 } cpu_info_t;
 
-void hardware_cpu_detect(cpu_info_t* info);
+void hardware_init(void);
+
+void hardware_get_cpu_info(
+    cpu_info_t* info
+);
+
+uint32_t hardware_get_cpuid_max(void);
 
 #endif

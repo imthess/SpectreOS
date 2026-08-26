@@ -1,7 +1,6 @@
 #include <stdint.h>
 
 #include "sync.h"
-#include "thread.h"
 
 static inline uint32_t atomic_exchange(
     volatile uint32_t* address,
@@ -81,8 +80,9 @@ void mutex_init(mutex_t* mutex)
         return;
     }
 
-    spinlock_init(&mutex->lock);
-    mutex->owner = -1;
+    spinlock_init(
+        &mutex->lock
+    );
 }
 
 void mutex_lock(mutex_t* mutex)
@@ -92,10 +92,9 @@ void mutex_lock(mutex_t* mutex)
         return;
     }
 
-    spinlock_acquire(&mutex->lock);
-
-    mutex->owner =
-        thread_get_current_index();
+    spinlock_acquire(
+        &mutex->lock
+    );
 }
 
 void mutex_unlock(mutex_t* mutex)
@@ -105,17 +104,9 @@ void mutex_unlock(mutex_t* mutex)
         return;
     }
 
-    int32_t current =
-        thread_get_current_index();
-
-    if (mutex->owner != current)
-    {
-        return;
-    }
-
-    mutex->owner = -1;
-
-    spinlock_release(&mutex->lock);
+    spinlock_release(
+        &mutex->lock
+    );
 }
 
 void semaphore_init(
@@ -128,18 +119,12 @@ void semaphore_init(
         return;
     }
 
-    semaphore->count = initial_count;
+    semaphore->count =
+        initial_count;
 
-    spinlock_init(&semaphore->lock);
-
-    semaphore->waiter_count = 0;
-
-    for (uint32_t i = 0;
-         i < SYNC_WAITERS_MAX;
-         i++)
-    {
-        semaphore->waiters[i] = 0;
-    }
+    spinlock_init(
+        &semaphore->lock
+    );
 }
 
 void semaphore_wait(
@@ -153,7 +138,9 @@ void semaphore_wait(
 
     for (;;)
     {
-        spinlock_acquire(&semaphore->lock);
+        spinlock_acquire(
+            &semaphore->lock
+        );
 
         if (semaphore->count > 0)
         {
@@ -164,42 +151,6 @@ void semaphore_wait(
             );
 
             return;
-        }
-
-        int32_t current =
-            thread_get_current_index();
-
-        if (current >= 0 &&
-            semaphore->waiter_count <
-            SYNC_WAITERS_MAX)
-        {
-            semaphore->waiters[
-                semaphore->waiter_count++
-            ] = (uint32_t)current;
-
-            thread_block_current();
-
-            spinlock_release(
-                &semaphore->lock
-            );
-
-            /*
-             * The PIT will switch to another
-             * READY thread. When this thread
-             * is awakened it retries the wait.
-             */
-            while (
-                thread_get_state(
-                    (uint32_t)current
-                ) == THREAD_BLOCKED
-            )
-            {
-                __asm__ volatile (
-                    "hlt"
-                );
-            }
-
-            continue;
         }
 
         spinlock_release(
@@ -224,32 +175,17 @@ void semaphore_signal(
         return;
     }
 
-    spinlock_acquire(&semaphore->lock);
+    spinlock_acquire(
+        &semaphore->lock
+    );
 
-    if (semaphore->waiter_count > 0)
-    {
-        uint32_t thread_id =
-            semaphore->waiters[0];
+    semaphore->count++;
 
-        for (uint32_t i = 1;
-             i < semaphore->waiter_count;
-             i++)
-        {
-            semaphore->waiters[i - 1] =
-                semaphore->waiters[i];
-        }
-
-        semaphore->waiter_count--;
-
-        thread_unblock(thread_id);
-    }
-    else
-    {
-        semaphore->count++;
-    }
-
-    spinlock_release(&semaphore->lock);
+    spinlock_release(
+        &semaphore->lock
+    );
 }
+
 
 int sync_self_test(void)
 {
@@ -282,19 +218,7 @@ int sync_self_test(void)
     mutex_init(&mutex);
 
     mutex_lock(&mutex);
-
-    if (mutex.owner !=
-        thread_get_current_index())
-    {
-        return 0;
-    }
-
     mutex_unlock(&mutex);
-
-    if (mutex.owner != -1)
-    {
-        return 0;
-    }
 
     semaphore_init(
         &semaphore,
@@ -303,17 +227,7 @@ int sync_self_test(void)
 
     semaphore_wait(&semaphore);
 
-    if (semaphore.count != 0)
-    {
-        return 0;
-    }
-
     semaphore_signal(&semaphore);
-
-    if (semaphore.count != 1)
-    {
-        return 0;
-    }
 
     return 1;
 }
