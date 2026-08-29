@@ -62,226 +62,46 @@ extern irq_handler
 extern syscall_handler
 
 ; ============================================================
-; GDT
+; GDT / IDT LOADERS
+;
+; void gdt_flush(uint32_t gdt_ptr);
+; void idt_load(uint32_t idt_ptr);
+;
+; cdecl: single argument is at [esp + 4].
 ; ============================================================
 
 gdt_flush:
     mov eax, [esp + 4]
     lgdt [eax]
 
-    mov ax, 0x10
-
+    mov ax, 0x10        ; kernel data selector (GDT index 2)
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
     mov ss, ax
 
-    jmp 0x08:.flush
-
+    jmp 0x08:.flush     ; kernel code selector (GDT index 1)
 .flush:
     ret
-
-
-; ============================================================
-; IDT
-; ============================================================
 
 idt_load:
     mov eax, [esp + 4]
     lidt [eax]
     ret
 
-
 ; ============================================================
-; CPU EXCEPTIONS
+; CPU EXCEPTION STUBS (isr0-isr31)
+;
+; Build a uniform registers_t on the stack (matches struct
+; registers_t in interrupts.h) and call exception_handler().
+;
+; Vectors 8, 10, 11, 12, 13, 14, 17, 21, 29, 30 push an error
+; code automatically; all others get a dummy 0 pushed here so
+; every stub produces the same stack layout.
 ; ============================================================
 
-isr0:
-    cli
-    push 0
-    push 0
-    jmp isr_common
-
-isr1:
-    cli
-    push 0
-    push 1
-    jmp isr_common
-
-isr2:
-    cli
-    push 0
-    push 2
-    jmp isr_common
-
-isr3:
-    cli
-    push 0
-    push 3
-    jmp isr_common
-
-isr4:
-    cli
-    push 0
-    push 4
-    jmp isr_common
-
-isr5:
-    cli
-    push 0
-    push 5
-    jmp isr_common
-
-isr6:
-    cli
-    push 0
-    push 6
-    jmp isr_common
-
-isr7:
-    cli
-    push 0
-    push 7
-    jmp isr_common
-
-isr8:
-    cli
-    push 8
-    jmp isr_common
-
-isr9:
-    cli
-    push 0
-    push 9
-    jmp isr_common
-
-isr10:
-    cli
-    push 10
-    jmp isr_common
-
-isr11:
-    cli
-    push 11
-    jmp isr_common
-
-isr12:
-    cli
-    push 12
-    jmp isr_common
-
-isr13:
-    cli
-    push 13
-    jmp isr_common
-
-isr14:
-    cli
-    push 14
-    jmp isr_common
-
-isr15:
-    cli
-    push 0
-    push 15
-    jmp isr_common
-
-isr16:
-    cli
-    push 0
-    push 16
-    jmp isr_common
-
-isr17:
-    cli
-    push 17
-    jmp isr_common
-
-isr18:
-    cli
-    push 0
-    push 18
-    jmp isr_common
-
-isr19:
-    cli
-    push 0
-    push 19
-    jmp isr_common
-
-isr20:
-    cli
-    push 0
-    push 20
-    jmp isr_common
-
-isr21:
-    cli
-    push 0
-    push 21
-    jmp isr_common
-
-isr22:
-    cli
-    push 0
-    push 22
-    jmp isr_common
-
-isr23:
-    cli
-    push 0
-    push 23
-    jmp isr_common
-
-isr24:
-    cli
-    push 0
-    push 24
-    jmp isr_common
-
-isr25:
-    cli
-    push 0
-    push 25
-    jmp isr_common
-
-isr26:
-    cli
-    push 0
-    push 26
-    jmp isr_common
-
-isr27:
-    cli
-    push 0
-    push 27
-    jmp isr_common
-
-isr28:
-    cli
-    push 0
-    push 28
-    jmp isr_common
-
-isr29:
-    cli
-    push 0
-    push 29
-    jmp isr_common
-
-isr30:
-    cli
-    push 30
-    jmp isr_common
-
-isr31:
-    cli
-    push 0
-    push 31
-    jmp isr_common
-
-isr_common:
+isr_common_stub:
     pusha
 
     push esp
@@ -289,132 +109,263 @@ isr_common:
     add esp, 4
 
     popa
-
-    add esp, 8
-
+    add esp, 8          ; discard err_code + int_no
     iretd
 
+isr0:
+    push dword 0
+    push dword 0
+    jmp isr_common_stub
+
+isr1:
+    push dword 0
+    push dword 1
+    jmp isr_common_stub
+
+isr2:
+    push dword 0
+    push dword 2
+    jmp isr_common_stub
+
+isr3:
+    push dword 0
+    push dword 3
+    jmp isr_common_stub
+
+isr4:
+    push dword 0
+    push dword 4
+    jmp isr_common_stub
+
+isr5:
+    push dword 0
+    push dword 5
+    jmp isr_common_stub
+
+isr6:
+    push dword 0
+    push dword 6
+    jmp isr_common_stub
+
+isr7:
+    push dword 0
+    push dword 7
+    jmp isr_common_stub
+
+isr8:
+    push dword 8
+    jmp isr_common_stub
+
+isr9:
+    push dword 0
+    push dword 9
+    jmp isr_common_stub
+
+isr10:
+    push dword 10
+    jmp isr_common_stub
+
+isr11:
+    push dword 11
+    jmp isr_common_stub
+
+isr12:
+    push dword 12
+    jmp isr_common_stub
+
+isr13:
+    push dword 13
+    jmp isr_common_stub
+
+isr14:
+    push dword 14
+    jmp isr_common_stub
+
+isr15:
+    push dword 0
+    push dword 15
+    jmp isr_common_stub
+
+isr16:
+    push dword 0
+    push dword 16
+    jmp isr_common_stub
+
+isr17:
+    push dword 17
+    jmp isr_common_stub
+
+isr18:
+    push dword 0
+    push dword 18
+    jmp isr_common_stub
+
+isr19:
+    push dword 0
+    push dword 19
+    jmp isr_common_stub
+
+isr20:
+    push dword 0
+    push dword 20
+    jmp isr_common_stub
+
+isr21:
+    push dword 21
+    jmp isr_common_stub
+
+isr22:
+    push dword 0
+    push dword 22
+    jmp isr_common_stub
+
+isr23:
+    push dword 0
+    push dword 23
+    jmp isr_common_stub
+
+isr24:
+    push dword 0
+    push dword 24
+    jmp isr_common_stub
+
+isr25:
+    push dword 0
+    push dword 25
+    jmp isr_common_stub
+
+isr26:
+    push dword 0
+    push dword 26
+    jmp isr_common_stub
+
+isr27:
+    push dword 0
+    push dword 27
+    jmp isr_common_stub
+
+isr28:
+    push dword 0
+    push dword 28
+    jmp isr_common_stub
+
+isr29:
+    push dword 29
+    jmp isr_common_stub
+
+isr30:
+    push dword 30
+    jmp isr_common_stub
+
+isr31:
+    push dword 0
+    push dword 31
+    jmp isr_common_stub
+
 ; ============================================================
-; HARDWARE IRQs
+; HARDWARE IRQ STUBS (irq0-irq15)
+;
+; Same stack layout as the exception stubs. IRQs never push a
+; CPU error code, so a dummy 0 is always pushed. int_no is set
+; to 32+n to match the remapped PIC vectors idt_init() uses.
+;
+; irq_handler() returns the (possibly switched) stack pointer
+; for the scheduler; that value replaces esp before popa/iret
+; so a context switch takes effect immediately on return.
 ; ============================================================
 
-irq0:
-    cli
-    push 0
-    push 32
-    jmp irq_common
-
-irq1:
-    cli
-    push 0
-    push 33
-    jmp irq_common
-
-irq2:
-    cli
-    push 0
-    push 34
-    jmp irq_common
-
-irq3:
-    cli
-    push 0
-    push 35
-    jmp irq_common
-
-irq4:
-    cli
-    push 0
-    push 36
-    jmp irq_common
-
-irq5:
-    cli
-    push 0
-    push 37
-    jmp irq_common
-
-irq6:
-    cli
-    push 0
-    push 38
-    jmp irq_common
-
-irq7:
-    cli
-    push 0
-    push 39
-    jmp irq_common
-
-irq8:
-    cli
-    push 0
-    push 40
-    jmp irq_common
-
-irq9:
-    cli
-    push 0
-    push 41
-    jmp irq_common
-
-irq10:
-    cli
-    push 0
-    push 42
-    jmp irq_common
-
-irq11:
-    cli
-    push 0
-    push 43
-    jmp irq_common
-
-irq12:
-    cli
-    push 0
-    push 44
-    jmp irq_common
-
-irq13:
-    cli
-    push 0
-    push 45
-    jmp irq_common
-
-irq14:
-    cli
-    push 0
-    push 46
-    jmp irq_common
-
-irq15:
-    cli
-    push 0
-    push 47
-    jmp irq_common
-
-
-irq_common:
+irq_common_stub:
     pusha
 
-    ; Pass the address of the complete IRQ frame.
     push esp
     call irq_handler
     add esp, 4
 
-    ; EAX contains the ESP of the thread
-    ; that should continue execution.
-    mov esp, eax
+    mov esp, eax        ; switch to the stack irq_handler returned
 
-    ; Restore that thread's registers.
     popa
-
-    ; Remove int_no and err_code.
-    add esp, 8
-
+    add esp, 8          ; discard err_code + int_no
     iretd
 
+irq0:
+    push dword 0
+    push dword 32
+    jmp irq_common_stub
+
+irq1:
+    push dword 0
+    push dword 33
+    jmp irq_common_stub
+
+irq2:
+    push dword 0
+    push dword 34
+    jmp irq_common_stub
+
+irq3:
+    push dword 0
+    push dword 35
+    jmp irq_common_stub
+
+irq4:
+    push dword 0
+    push dword 36
+    jmp irq_common_stub
+
+irq5:
+    push dword 0
+    push dword 37
+    jmp irq_common_stub
+
+irq6:
+    push dword 0
+    push dword 38
+    jmp irq_common_stub
+
+irq7:
+    push dword 0
+    push dword 39
+    jmp irq_common_stub
+
+irq8:
+    push dword 0
+    push dword 40
+    jmp irq_common_stub
+
+irq9:
+    push dword 0
+    push dword 41
+    jmp irq_common_stub
+
+irq10:
+    push dword 0
+    push dword 42
+    jmp irq_common_stub
+
+irq11:
+    push dword 0
+    push dword 43
+    jmp irq_common_stub
+
+irq12:
+    push dword 0
+    push dword 44
+    jmp irq_common_stub
+
+irq13:
+    push dword 0
+    push dword 45
+    jmp irq_common_stub
+
+irq14:
+    push dword 0
+    push dword 46
+    jmp irq_common_stub
+
+irq15:
+    push dword 0
+    push dword 47
+    jmp irq_common_stub
 
 ; ============================================================
 ; SPECTREOS SYSTEM CALL
@@ -433,5 +384,4 @@ isr80:
     add esp, 4
 
     popa
-
     iretd

@@ -17,4 +17,6 @@ void shell_keyboard_down(void);
 
 void shell_keyboard_enter(void);
 
+void shell_resume_prompt(void);
+
 #endif

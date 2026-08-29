@@ -4,6 +4,44 @@
 
 static cpu_info_t cpu_info;
 
+static void mem_zero(
+    void* ptr,
+    uint32_t size
+)
+{
+    uint8_t* p = (uint8_t*)ptr;
+
+    while (size--)
+    {
+        *p++ = 0;
+    }
+}
+
+static int cpuid_supported(void)
+{
+    uint32_t before;
+    uint32_t after;
+
+    __asm__ volatile (
+        "pushfl\n"
+        "popl %0\n"
+        "movl %0, %1\n"
+        "xorl $0x200000, %1\n"
+        "pushl %1\n"
+        "popfl\n"
+        "pushfl\n"
+        "popl %1\n"
+        "pushl %0\n"
+        "popfl\n"
+        : "=r"(before),
+          "=r"(after)
+        :
+        : "memory"
+    );
+
+    return ((before ^ after) & 0x200000U) != 0;
+}
+
 static inline void cpuid(
     uint32_t leaf,
     uint32_t subleaf,
@@ -50,8 +88,15 @@ static void cpu_detect(void)
     uint32_t ecx;
     uint32_t edx;
 
-    cpu_info.vendor[0] = '\0';
-    cpu_info.brand[0] = '\0';
+    mem_zero(
+        &cpu_info,
+        sizeof(cpu_info)
+    );
+
+    if (cpuid_supported() == 0)
+    {
+        return;
+    }
 
     cpuid(
         0,
@@ -61,6 +106,8 @@ static void cpu_detect(void)
         &ecx,
         &edx
     );
+
+    uint32_t max_basic_leaf = eax;
 
     copy_u32(
         &cpu_info.vendor[0],
@@ -79,9 +126,7 @@ static void cpu_detect(void)
 
     cpu_info.vendor[12] = '\0';
 
-    uint32_t max_leaf = eax;
-
-    if (max_leaf >= 1)
+    if (max_basic_leaf >= 1)
     {
         cpuid(
             1,
@@ -121,18 +166,18 @@ static void cpu_detect(void)
         }
     }
 
-    uint32_t extended_max;
-
     cpuid(
         0x80000000,
         0,
-        &extended_max,
+        &eax,
         &ebx,
         &ecx,
         &edx
     );
 
-    if (extended_max >= 0x80000004)
+    uint32_t max_extended_leaf = eax;
+
+    if (max_extended_leaf >= 0x80000004)
     {
         uint32_t* brand =
             (uint32_t*)cpu_info.brand;
@@ -164,14 +209,10 @@ static void cpu_detect(void)
             &brand[11]
         );
 
-        cpu_info.brand[48] =
-            '\0';
+        cpu_info.brand[48] = '\0';
     }
-    else
-    {
-        cpu_info.brand[0] =
-            '\0';
-    }
+
+    cpu_info.available = 1;
 }
 
 void hardware_init(void)
@@ -191,12 +232,22 @@ void hardware_get_cpu_info(
     *info = cpu_info;
 }
 
+int hardware_available(void)
+{
+    return cpu_info.available != 0;
+}
+
 uint32_t hardware_get_cpuid_max(void)
 {
     uint32_t eax;
     uint32_t ebx;
     uint32_t ecx;
     uint32_t edx;
+
+    if (cpuid_supported() == 0)
+    {
+        return 0;
+    }
 
     cpuid(
         0,

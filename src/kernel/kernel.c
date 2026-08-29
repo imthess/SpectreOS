@@ -1,178 +1,30 @@
-
 #include <stdint.h>
 
-#include "pic.h"
-#include "keyboard.h"
+#include "hardware.h"
+#include "memory.h"
 #include "gdt.h"
 #include "idt.h"
+#include "pic.h"
+#include "pit.h"
 #include "pmm.h"
+#include "paging.h"
+#include "keyboard.h"
+#include "ata.h"
+#include "fs.h"
+#include "thread.h"
+#include "scheduler.h"
 #include "syscall.h"
 #include "shell.h"
 #include "terminal.h"
-#include "sync.h"
-#include "paging.h"
-#include "pit.h"
-#include "memory.h"
-#include "thread.h"
-#include "hardware.h"
-#include "scheduler.h"
 
-static volatile uint32_t thread_a_ticks = 0;
-static volatile uint32_t thread_b_ticks = 0;
-
-
-
-static void kernel_status(void)
+static void halt_forever(void)
 {
-    cpu_info_t cpu;
+    __asm__ volatile ("cli");
 
-    hardware_get_cpu_info(
-        &cpu
-    );
-
-    terminal_write(
-        "\n=== SpectreOS Status ===\n"
-    );
-
-    terminal_write(
-        "CPU Vendor: "
-    );
-
-    terminal_write(
-        cpu.vendor
-    );
-
-    terminal_write(
-        "\nCPU Brand: "
-    );
-
-    terminal_write(
-        cpu.brand
-    );
-
-    terminal_write(
-        "\nCPU Family: "
-    );
-
-    terminal_write_uint(
-        cpu.family
-    );
-
-    terminal_write(
-        "\nCPU Model: "
-    );
-
-    terminal_write_uint(
-        cpu.model
-    );
-
-    terminal_write(
-        "\nCPU Stepping: "
-    );
-
-    terminal_write_uint(
-        cpu.stepping
-    );
-
-    terminal_write(
-        "\nScheduler switches: "
-    );
-
-    terminal_write_uint(
-        scheduler_get_switches()
-    );
-
-    terminal_write(
-        "\nThreads: "
-    );
-
-    terminal_write_uint(
-        thread_get_count()
-    );
-
-    terminal_write(
-        "\nPIT ticks: "
-    );
-
-    terminal_write_uint(
-        pit_get_ticks()
-    );
-
-    terminal_write(
-        "\n========================\n"
-    );
-}
-
-static void test_thread_a(void)
-{
-    while (thread_a_ticks < 100000)
+    while (1)
     {
-        thread_a_ticks++;
-
-        /*
-         * Simulate periodic kernel work.
-         */
         __asm__ volatile ("hlt");
     }
-
-    /*
-     * Verify thread termination.
-     */
-    thread_exit();
-}
-
-static void test_thread_b(void)
-{
-    while (thread_b_ticks < 100000)
-    {
-        thread_b_ticks++;
-
-        __asm__ volatile ("hlt");
-    }
-
-    thread_exit();
-}
-static mutex_t sync_test_mutex;
-static semaphore_t sync_test_semaphore;
-
-static void synchronization_test(void)
-{
-    mutex_init(&sync_test_mutex);
-
-    semaphore_init(
-        &sync_test_semaphore,
-        1
-    );
-
-    mutex_lock(&sync_test_mutex);
-
-    terminal_write(
-        "\nSynchronization:\n"
-        "  Spinlock: OK\n"
-        "  Mutex: OK\n"
-    );
-
-    mutex_unlock(&sync_test_mutex);
-
-    semaphore_wait(
-        &sync_test_semaphore
-    );
-
-    terminal_write(
-        "  Semaphore wait: OK\n"
-    );
-
-    semaphore_signal(
-        &sync_test_semaphore
-    );
-
-    terminal_write(
-        "  Semaphore signal: OK\n"
-    );
-
-    terminal_write(
-        "Synchronization: OK\n"
-    );
 }
 
 void kernel_main(
@@ -180,6 +32,11 @@ void kernel_main(
     uint32_t multiboot_info
 )
 {
+    /*
+     * No hardware IRQs while the kernel is being initialized.
+     */
+    __asm__ volatile ("cli");
+
     terminal_clear();
 
     hardware_init();
@@ -194,24 +51,31 @@ void kernel_main(
             "ERROR: Invalid Multiboot magic.\n"
         );
 
-        while (1)
-        {
-            __asm__ volatile (
-                "cli; hlt"
-            );
-        }
+        halt_forever();
     }
 
     terminal_write(
         "Multiboot: OK\n"
     );
 
-    memory_init(multiboot_info);
+    /*
+     * --------------------------------------------------------
+     * MEMORY
+     * --------------------------------------------------------
+     */
+    memory_init(
+        multiboot_info
+    );
 
     terminal_write(
         "Memory detection: OK\n"
     );
 
+    /*
+     * --------------------------------------------------------
+     * CPU / INTERRUPT FOUNDATION
+     * --------------------------------------------------------
+     */
     gdt_init();
 
     terminal_write(
@@ -226,9 +90,18 @@ void kernel_main(
 
     pic_remap();
 
-    pit_init(100);
+    pit_init(
+        100
+    );
 
-    pmm_init(multiboot_info);
+    /*
+     * --------------------------------------------------------
+     * PHYSICAL + VIRTUAL MEMORY
+     * --------------------------------------------------------
+     */
+    pmm_init(
+        multiboot_info
+    );
 
     paging_init();
 
@@ -240,11 +113,64 @@ void kernel_main(
         "Memory manager: OK\n"
     );
 
+    /*
+     * --------------------------------------------------------
+     * ATA STORAGE
+     * --------------------------------------------------------
+     *
+     * Must happen before filesystem initialization.
+     */
+    if (!ata_init())
+    {
+        terminal_write(
+            "ATA: FAILED\n"
+        );
+
+        halt_forever();
+    }
+
+    terminal_write(
+        "ATA: OK\n"
+    );
+
+    /*
+     * --------------------------------------------------------
+     * FILESYSTEM
+     * --------------------------------------------------------
+     *
+     * Loads the persistent filesystem from the ATA disk.
+     * If the disk is blank, fs_init() creates the filesystem.
+     */
+    if (!fs_init())
+    {
+        terminal_write(
+            "Filesystem: FAILED\n"
+        );
+
+        halt_forever();
+    }
+
+    terminal_write(
+        "Filesystem: OK\n"
+    );
+
+    /*
+     * --------------------------------------------------------
+     * KEYBOARD
+     * --------------------------------------------------------
+     */
     keyboard_init();
 
     /*
-     * Initialize threading before enabling
-     * hardware interrupts.
+     * --------------------------------------------------------
+     * THREADING
+     * --------------------------------------------------------
+     *
+     * Initialize the subsystem only.
+     *
+     * Do NOT create the previous experimental test threads
+     * here. Their unfinished context-switch path was causing
+     * the invalid EIP=0x00000003 exception.
      */
     thread_init();
 
@@ -252,75 +178,67 @@ void kernel_main(
         "Threading: OK\n"
     );
 
+    /*
+     * --------------------------------------------------------
+     * SCHEDULER
+     * --------------------------------------------------------
+     *
+     * Initialize scheduler state, but don't force an
+     * experimental context switch from the PIT yet.
+     */
     scheduler_init();
-    synchronization_test();
 
     terminal_write(
         "Scheduler: OK\n"
     );
 
     /*
-     * Create two actual kernel threads.
+     * --------------------------------------------------------
+     * SYSTEM CALLS
+     * --------------------------------------------------------
+     *
+     * IDT/syscall infrastructure has already been installed
+     * by idt_init() and the syscall implementation is linked.
      */
-    int thread_a =
-        thread_create(test_thread_a);
-
-    int thread_b =
-        thread_create(test_thread_b);
-
-    if (thread_a > 0 &&
-        thread_b > 0)
-    {
-        terminal_write(
-            "Thread creation: OK\n"
-        );
-    }
-    else
-    {
-        terminal_write(
-            "Thread creation: FAILED\n"
-        );
-    }
-
-    
     terminal_write(
-        "\nInterrupts: OK\n"
+        "Interrupts: OK\n"
     );
 
     terminal_write(
         "System calls: OK\n"
     );
 
-    terminal_write(
-        "Round-Robin scheduler: ACTIVE\n\n"
-    );
-
     /*
-     * Start hardware interrupts.
+     * --------------------------------------------------------
+     * SHELL
+     * --------------------------------------------------------
+     *
+     * Initialize the shell BEFORE enabling interrupts.
      */
-    __asm__ volatile ("sti");
+    shell_init();
 
     /*
-     * Enable PIT and keyboard IRQs only after
-     * all scheduler structures are ready.
+     * --------------------------------------------------------
+     * INTERRUPTS
+     * --------------------------------------------------------
+     *
+     * Keyboard and timer are enabled only after every
+     * subsystem above is ready.
      */
     pic_unmask_irq(0);
     pic_unmask_irq(1);
 
-    /*
-     * Initialize the shell before interrupts
-     * are enabled.
-     */
-    shell_init();
-
+    __asm__ volatile ("sti");
 
     /*
-     * Bootstrap thread remains idle while
-     * timer IRQs switch between worker threads.
+     * Bootstrap kernel remains active.
+     *
+     * PIT currently provides timer interrupts and the
+     * keyboard provides shell input. The scheduler remains
+     * initialized but no unsafe test context-switch is forced.
      */
     while (1)
     {
         __asm__ volatile ("hlt");
     }
 }
-

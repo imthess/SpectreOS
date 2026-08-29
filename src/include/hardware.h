@@ -5,6 +5,8 @@
 
 typedef struct
 {
+    uint32_t available;
+
     uint32_t family;
     uint32_t model;
     uint32_t stepping;
@@ -19,6 +21,8 @@ void hardware_init(void);
 void hardware_get_cpu_info(
     cpu_info_t* info
 );
+
+int hardware_available(void);
 
 uint32_t hardware_get_cpuid_max(void);
 

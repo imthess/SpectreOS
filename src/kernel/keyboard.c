@@ -2,9 +2,10 @@
 
 #include "keyboard.h"
 #include "shell.h"
+#include "nano.h"
 
-#define KEYBOARD_DATA_PORT    0x60
-#define KEYBOARD_STATUS_PORT  0x64
+#define KEYBOARD_DATA_PORT   0x60
+#define KEYBOARD_STATUS_PORT 0x64
 
 static inline uint8_t inb(uint16_t port)
 {
@@ -19,9 +20,6 @@ static inline uint8_t inb(uint16_t port)
     return value;
 }
 
-/*
- * Set 1 scancode map.
- */
 static const char keyboard_map[128] =
 {
     0,    27,  '1', '2', '3', '4', '5', '6',
@@ -42,9 +40,6 @@ static const char keyboard_map[128] =
     '2',  '3',  '0', '.'
 };
 
-/*
- * Shifted set 1 map.
- */
 static const char keyboard_shift_map[128] =
 {
     0,    27,  '!', '@', '#', '$', '%', '^',
@@ -65,13 +60,12 @@ static const char keyboard_shift_map[128] =
     '2',  '3',  '0', '.'
 };
 
-static int left_shift = 0;
-static int right_shift = 0;
-static int caps_lock = 0;
-static int ctrl_pressed = 0;
-static int alt_pressed = 0;
-
-static int extended_scancode = 0;
+static volatile int left_shift = 0;
+static volatile int right_shift = 0;
+static volatile int caps_lock = 0;
+static volatile int ctrl_pressed = 0;
+static volatile int alt_pressed = 0;
+static volatile int extended = 0;
 
 static int shift_active(void)
 {
@@ -80,28 +74,179 @@ static int shift_active(void)
 
 static int is_letter(char c)
 {
-    return (
-        c >= 'a' &&
-        c <= 'z'
-    );
+    return c >= 'a' && c <= 'z';
+}
+
+static char apply_case(
+    uint8_t scancode
+)
+{
+    char normal = keyboard_map[scancode];
+
+    if (!is_letter(normal))
+    {
+        return shift_active()
+            ? keyboard_shift_map[scancode]
+            : normal;
+    }
+
+    /*
+     * XOR behavior:
+     *
+     * neither     -> lowercase
+     * shift       -> uppercase
+     * caps        -> uppercase
+     * shift+caps  -> lowercase
+     */
+    if (shift_active() ^ caps_lock)
+    {
+        return (char)(normal - 'a' + 'A');
+    }
+
+    return normal;
 }
 
 void keyboard_init(void)
 {
-    /*
-     * Clear keyboard state.
-     */
     left_shift = 0;
     right_shift = 0;
     caps_lock = 0;
     ctrl_pressed = 0;
     alt_pressed = 0;
-    extended_scancode = 0;
+    extended = 0;
 
     /*
-     * Read status port.
+     * Do not consume keyboard data here.
+     * Only read controller status.
      */
     (void)inb(KEYBOARD_STATUS_PORT);
+}
+
+/*
+ * Dispatch helpers: route to nano while it owns the keyboard,
+ * otherwise route to the shell. Keeping this as small wrapper
+ * functions means the scancode-handling logic below never has
+ * to branch on "which mode are we in" more than once per key.
+ */
+
+static void dispatch_character(char c)
+{
+    if (nano_active())
+    {
+        nano_keyboard_character(c);
+    }
+    else
+    {
+        shell_keyboard_character(c);
+    }
+}
+
+static void dispatch_enter(void)
+{
+    if (nano_active())
+    {
+        nano_keyboard_enter();
+    }
+    else
+    {
+        shell_keyboard_enter();
+    }
+}
+
+static void dispatch_backspace(void)
+{
+    if (nano_active())
+    {
+        nano_keyboard_backspace();
+    }
+    else
+    {
+        shell_keyboard_backspace();
+    }
+}
+
+static void dispatch_delete(void)
+{
+    if (nano_active())
+    {
+        nano_keyboard_delete();
+    }
+    else
+    {
+        shell_keyboard_delete();
+    }
+}
+
+static void dispatch_left(void)
+{
+    if (nano_active())
+    {
+        nano_keyboard_left();
+    }
+    else
+    {
+        shell_keyboard_left();
+    }
+}
+
+static void dispatch_right(void)
+{
+    if (nano_active())
+    {
+        nano_keyboard_right();
+    }
+    else
+    {
+        shell_keyboard_right();
+    }
+}
+
+static void dispatch_up(void)
+{
+    if (nano_active())
+    {
+        nano_keyboard_up();
+    }
+    else
+    {
+        shell_keyboard_up();
+    }
+}
+
+static void dispatch_down(void)
+{
+    if (nano_active())
+    {
+        nano_keyboard_down();
+    }
+    else
+    {
+        shell_keyboard_down();
+    }
+}
+
+static void dispatch_home(void)
+{
+    if (nano_active())
+    {
+        nano_keyboard_home();
+    }
+    else
+    {
+        shell_keyboard_home();
+    }
+}
+
+static void dispatch_end(void)
+{
+    if (nano_active())
+    {
+        nano_keyboard_end();
+    }
+    else
+    {
+        shell_keyboard_end();
+    }
 }
 
 void keyboard_handler(void)
@@ -110,24 +255,41 @@ void keyboard_handler(void)
         inb(KEYBOARD_DATA_PORT);
 
     /*
-     * E0 means the next scancode is an
-     * extended keyboard key.
+     * Extended scancode prefix.
      */
     if (scancode == 0xE0)
     {
-        extended_scancode = 1;
+        extended = 1;
         return;
     }
 
     /*
-     * Extended key handling.
+     * Extended key.
      */
-    if (extended_scancode)
+    if (extended)
     {
-        extended_scancode = 0;
+        extended = 0;
 
         /*
-         * Ignore extended key releases for now.
+         * Right Ctrl.
+         */
+        if (scancode == 0x1D)
+        {
+            ctrl_pressed = 1;
+            return;
+        }
+
+        /*
+         * Right Ctrl release.
+         */
+        if (scancode == 0x9D)
+        {
+            ctrl_pressed = 0;
+            return;
+        }
+
+        /*
+         * Extended key release.
          */
         if (scancode & 0x80)
         {
@@ -136,60 +298,32 @@ void keyboard_handler(void)
 
         switch (scancode)
         {
-            /*
-             * Right arrow.
-             */
-            case 0x4D:
-                shell_keyboard_right();
-                return;
-
-            /*
-             * Left arrow.
-             */
             case 0x4B:
-                shell_keyboard_left();
+                dispatch_left();
                 return;
 
-            /*
-             * Up arrow.
-             */
+            case 0x4D:
+                dispatch_right();
+                return;
+
             case 0x48:
-                shell_keyboard_up();
+                dispatch_up();
                 return;
 
-            /*
-             * Down arrow.
-             */
             case 0x50:
-                shell_keyboard_down();
+                dispatch_down();
                 return;
 
-            /*
-             * Delete.
-             */
             case 0x53:
-                shell_keyboard_delete();
+                dispatch_delete();
                 return;
 
-            /*
-             * Home.
-             */
             case 0x47:
-                shell_keyboard_home();
+                dispatch_home();
                 return;
 
-            /*
-             * End.
-             */
             case 0x4F:
-                shell_keyboard_end();
-                return;
-
-            /*
-             * Right Ctrl press.
-             */
-            case 0x1D:
-                ctrl_pressed = 1;
+                dispatch_end();
                 return;
 
             default:
@@ -198,7 +332,7 @@ void keyboard_handler(void)
     }
 
     /*
-     * Left Shift press.
+     * Left Shift.
      */
     if (scancode == 0x2A)
     {
@@ -206,18 +340,6 @@ void keyboard_handler(void)
         return;
     }
 
-    /*
-     * Right Shift press.
-     */
-    if (scancode == 0x36)
-    {
-        right_shift = 1;
-        return;
-    }
-
-    /*
-     * Left Shift release.
-     */
     if (scancode == 0xAA)
     {
         left_shift = 0;
@@ -225,8 +347,14 @@ void keyboard_handler(void)
     }
 
     /*
-     * Right Shift release.
+     * Right Shift.
      */
+    if (scancode == 0x36)
+    {
+        right_shift = 1;
+        return;
+    }
+
     if (scancode == 0xB6)
     {
         right_shift = 0;
@@ -234,7 +362,7 @@ void keyboard_handler(void)
     }
 
     /*
-     * Left Ctrl press.
+     * Left Ctrl.
      */
     if (scancode == 0x1D)
     {
@@ -242,9 +370,6 @@ void keyboard_handler(void)
         return;
     }
 
-    /*
-     * Left Ctrl release.
-     */
     if (scancode == 0x9D)
     {
         ctrl_pressed = 0;
@@ -252,7 +377,7 @@ void keyboard_handler(void)
     }
 
     /*
-     * Left Alt press.
+     * Left Alt.
      */
     if (scancode == 0x38)
     {
@@ -260,9 +385,6 @@ void keyboard_handler(void)
         return;
     }
 
-    /*
-     * Left Alt release.
-     */
     if (scancode == 0xB8)
     {
         alt_pressed = 0;
@@ -279,7 +401,7 @@ void keyboard_handler(void)
     }
 
     /*
-     * Ignore all ordinary key releases.
+     * Ignore key release.
      */
     if (scancode & 0x80)
     {
@@ -291,68 +413,35 @@ void keyboard_handler(void)
         return;
     }
 
-    char character;
-
     /*
-     * Select normal or shifted map.
-     */
-    if (shift_active())
-    {
-        character =
-            keyboard_shift_map[scancode];
-    }
-    else
-    {
-        character =
-            keyboard_map[scancode];
-    }
-
-    /*
-     * Alphabetic keys.
+     * Ctrl handling.
      *
-     * Caps Lock and Shift have opposite
-     * effects on letters.
-     */
-    if (is_letter(keyboard_map[scancode]))
-    {
-        if (caps_lock)
-        {
-            if (shift_active())
-            {
-                character =
-                    keyboard_map[scancode];
-            }
-            else
-            {
-                character =
-                    keyboard_map[scancode]
-                    - 'a' + 'A';
-            }
-        }
-    }
-
-    /*
-     * Ctrl combinations.
+     * When Ctrl is held, printable letter keys are reported to
+     * whichever mode owns the keyboard (nano or the shell) via
+     * its ctrl handler instead of being turned into a normal
+     * character. This runs before the Enter/Backspace/Tab
+     * checks below so e.g. Ctrl+O is never confused with a
+     * plain 'o' keystroke.
      */
     if (ctrl_pressed)
     {
-        /*
-         * Ctrl+C.
-         */
-        if (character == 'c' ||
-            character == 'C')
+        char base = keyboard_map[scancode];
+
+        if (is_letter(base))
         {
+            if (nano_active())
+            {
+                nano_keyboard_ctrl(base);
+            }
+
+            /*
+             * The shell has no Ctrl+letter bindings today;
+             * Ctrl+C and any other combo are still no-ops
+             * outside nano, matching prior behavior.
+             */
             return;
         }
 
-        return;
-    }
-
-    /*
-     * Alt combinations are currently ignored.
-     */
-    if (alt_pressed)
-    {
         return;
     }
 
@@ -361,7 +450,7 @@ void keyboard_handler(void)
      */
     if (scancode == 0x1C)
     {
-        shell_keyboard_enter();
+        dispatch_enter();
         return;
     }
 
@@ -370,7 +459,7 @@ void keyboard_handler(void)
      */
     if (scancode == 0x0E)
     {
-        shell_keyboard_backspace();
+        dispatch_backspace();
         return;
     }
 
@@ -379,15 +468,26 @@ void keyboard_handler(void)
      */
     if (scancode == 0x0F)
     {
-        shell_keyboard_character('\t');
+        dispatch_character('\t');
         return;
     }
 
     /*
-     * Normal printable character.
+     * Alt handling.
      */
+    if (alt_pressed)
+    {
+        return;
+    }
+
+    /*
+     * Convert printable key.
+     */
+    char character =
+        apply_case(scancode);
+
     if (character != 0)
     {
-        shell_keyboard_character(character);
+        dispatch_character(character);
     }
 }

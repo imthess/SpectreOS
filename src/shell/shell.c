@@ -6,8 +6,10 @@
 #include "thread.h"
 #include "pmm.h"
 #include "hardware.h"
+#include "fs.h"
 #include "pit.h"
 #include "memory.h"
+#include "nano.h"
 
 #define SHELL_MAX_LINE       128
 #define SHELL_HISTORY_SIZE   16
@@ -441,7 +443,855 @@ static void shell_print_memory_info(void)
 }
 
 
-static void shell_execute(void)
+
+/*
+ * NOTE: the previous shell_fs_ls / shell_fs_touch / shell_fs_rm /
+ * shell_fs_cat / shell_fs_write helpers were dead code — never called
+ * from shell_execute() — and shell_fs_write had a bug (it passed a
+ * hardcoded length of 4096 to fs_write() instead of the real length
+ * of `text`, causing an out-of-bounds read past the end of the
+ * caller's string). They have been removed; shell_cmd_ls / _touch /
+ * _rm / _cat / _write below are the versions actually wired into the
+ * dispatcher and are unaffected.
+ */
+
+static void shell_write_uint(
+    uint32_t value
+)
+{
+    char buffer[11];
+    uint32_t i = 0;
+
+    if (value == 0)
+    {
+        terminal_putchar('0');
+        return;
+    }
+
+    while (value > 0 && i < sizeof(buffer))
+    {
+        buffer[i++] =
+            (char)('0' + (value % 10));
+
+        value /= 10;
+    }
+
+    while (i > 0)
+    {
+        terminal_putchar(
+            buffer[--i]
+        );
+    }
+}
+
+static const char* shell_skip_spaces(
+    const char* p
+)
+{
+    while (*p == ' ' ||
+           *p == '\t')
+    {
+        p++;
+    }
+
+    return p;
+}
+
+static int shell_get_token(
+    const char** input,
+    char* output,
+    uint32_t output_size
+)
+{
+    const char* p =
+        shell_skip_spaces(*input);
+
+    uint32_t length = 0;
+
+    if (*p == '\0')
+    {
+        return 0;
+    }
+
+    while (*p &&
+           *p != ' ' &&
+           *p != '\t')
+    {
+        if (length + 1 >= output_size)
+        {
+            return 0;
+        }
+
+        output[length++] =
+            *p++;
+
+    }
+
+    output[length] = '\0';
+
+    *input = p;
+
+    return 1;
+}
+
+static void shell_command_prompt(void)
+{
+    terminal_write(
+        SHELL_PROMPT
+    );
+
+    prompt_x =
+        terminal_get_cursor_x();
+
+    prompt_y =
+        terminal_get_cursor_y();
+
+    command_length = 0;
+    cursor_position = 0;
+    history_position = -1;
+}
+
+static void shell_cmd_hwinfo(void)
+{
+    cpu_info_t info;
+
+    hardware_get_cpu_info(
+        &info
+    );
+
+    terminal_write(
+        "\nHardware information:\n"
+    );
+
+    if (hardware_available() == 0)
+    {
+        terminal_write(
+            "  CPUID: unavailable\n"
+        );
+
+        return;
+    }
+
+    terminal_write(
+        "  CPUID: available\n"
+        "  Vendor: "
+    );
+
+    terminal_write(
+        info.vendor
+    );
+
+    terminal_write(
+        "\n  Brand: "
+    );
+
+    if (info.brand[0] != '\0')
+    {
+        terminal_write(
+            info.brand
+        );
+    }
+    else
+    {
+        terminal_write(
+            "Unavailable"
+        );
+    }
+
+    terminal_write(
+        "\n  Family: "
+    );
+
+    shell_write_uint(
+        info.family
+    );
+
+    terminal_write(
+        "\n  Model: "
+    );
+
+    shell_write_uint(
+        info.model
+    );
+
+    terminal_write(
+        "\n  Stepping: "
+    );
+
+    shell_write_uint(
+        info.stepping
+    );
+
+    terminal_write(
+        "\n  Max CPUID leaf: "
+    );
+
+    shell_write_uint(
+        hardware_get_cpuid_max()
+    );
+
+    terminal_write(
+        "\n"
+    );
+}
+
+static void shell_cmd_ls(void)
+{
+    static char list_buffer[4096];
+
+    int result =
+        fs_list(
+            list_buffer,
+            sizeof(list_buffer)
+        );
+
+    terminal_putchar('\n');
+
+    if (result < 0)
+    {
+        terminal_write(
+            "ls: filesystem error\n"
+        );
+
+        return;
+    }
+
+    if (result == 0)
+    {
+        terminal_write(
+            "(empty)\n"
+        );
+
+        return;
+    }
+
+    terminal_write(
+        list_buffer
+    );
+}
+
+static void shell_cmd_touch(
+    const char* args
+)
+{
+    char name[
+        FS_MAX_FILENAME
+    ];
+
+    if (shell_get_token(&args, name, sizeof(name)) == 0)
+    {
+        terminal_write(
+            "\ntouch: missing filename\n"
+        );
+
+        return;
+    }
+
+    args =
+        shell_skip_spaces(args);
+
+    if (*args != '\0')
+    {
+        terminal_write(
+            "\ntouch: too many arguments\n"
+        );
+
+        return;
+    }
+
+    if (fs_exists(name))
+    {
+        terminal_write(
+            "\nFile already exists.\n"
+        );
+
+        return;
+    }
+
+    if (fs_create(name) == 0)
+    {
+        terminal_write(
+            "\ntouch: failed to create file\n"
+        );
+
+        return;
+    }
+
+    terminal_write(
+        "\nFile created.\n"
+    );
+}
+
+static void shell_cmd_rm(
+    const char* args
+)
+{
+    char name[
+        FS_MAX_FILENAME
+    ];
+
+    if (shell_get_token(&args, name, sizeof(name)) == 0)
+    {
+        terminal_write(
+            "\nrm: missing filename\n"
+        );
+
+        return;
+    }
+
+    args =
+        shell_skip_spaces(args);
+
+    if (*args != '\0')
+    {
+        terminal_write(
+            "\nrm: too many arguments\n"
+        );
+
+        return;
+    }
+
+    if (fs_exists(name) == 0)
+    {
+        terminal_write(
+            "\nrm: file not found\n"
+        );
+
+        return;
+    }
+
+    if (fs_delete(name) == 0)
+    {
+        terminal_write(
+            "\nrm: delete failed\n"
+        );
+
+        return;
+    }
+
+    terminal_write(
+        "\nFile deleted.\n"
+    );
+}
+
+static void shell_cmd_cat(
+    const char* args
+)
+{
+    char name[
+        FS_MAX_FILENAME
+    ];
+
+    if (shell_get_token(&args, name, sizeof(name)) == 0)
+    {
+        terminal_write(
+            "\ncat: missing filename\n"
+        );
+
+        return;
+    }
+
+    args =
+        shell_skip_spaces(args);
+
+    if (*args != '\0')
+    {
+        terminal_write(
+            "\ncat: too many arguments\n"
+        );
+
+        return;
+    }
+
+    int fd =
+        fs_open(name);
+
+    if (fd < 0)
+    {
+        terminal_write(
+            "\ncat: file not found\n"
+        );
+
+        return;
+    }
+
+    terminal_putchar('\n');
+
+    char buffer[512];
+
+    while (1)
+    {
+        int count =
+            fs_read(
+                fd,
+                buffer,
+                sizeof(buffer)
+            );
+
+        if (count < 0)
+        {
+            terminal_write(
+                "\ncat: read error\n"
+            );
+
+            break;
+        }
+
+        if (count == 0)
+        {
+            break;
+        }
+
+        for (int i = 0;
+             i < count;
+             i++)
+        {
+            terminal_putchar(
+                buffer[i]
+            );
+        }
+    }
+
+    fs_close(fd);
+}
+
+static void shell_cmd_write(
+    const char* args
+)
+{
+    char name[
+        FS_MAX_FILENAME
+    ];
+
+    if (shell_get_token(&args, name, sizeof(name)) == 0)
+    {
+        terminal_write(
+            "\nwrite: missing filename\n"
+        );
+
+        return;
+    }
+
+    args =
+        shell_skip_spaces(args);
+
+    if (fs_exists(name) == 0)
+    {
+        if (fs_create(name) == 0)
+        {
+            terminal_write(
+                "\nwrite: could not create file\n"
+            );
+
+            return;
+        }
+    }
+
+    int fd =
+        fs_open(name);
+
+    if (fd < 0)
+    {
+        terminal_write(
+            "\nwrite: could not open file\n"
+        );
+
+        return;
+    }
+
+    uint32_t length = 0;
+
+    while (args[length] &&
+           length < FS_MAX_FILE_SIZE)
+    {
+        length++;
+    }
+
+    int written =
+        fs_write(
+            fd,
+            args,
+            length
+        );
+
+    fs_close(fd);
+
+    if (written < 0 ||
+        (uint32_t)written != length)
+    {
+        terminal_write(
+            "\nwrite: write failed\n"
+        );
+
+        return;
+    }
+
+    terminal_write(
+        "\nWrite successful.\n"
+    );
+}
+
+static void shell_cmd_cp(
+    const char* args
+)
+{
+    char src[
+        FS_MAX_FILENAME
+    ];
+
+    char dst[
+        FS_MAX_FILENAME
+    ];
+
+    if (shell_get_token(&args, src, sizeof(src)) == 0)
+    {
+        terminal_write(
+            "\ncp: usage cp <src> <dst>\n"
+        );
+
+        return;
+    }
+
+    if (shell_get_token(&args, dst, sizeof(dst)) == 0)
+    {
+        terminal_write(
+            "\ncp: usage cp <src> <dst>\n"
+        );
+
+        return;
+    }
+
+    args =
+        shell_skip_spaces(args);
+
+    if (*args != '\0')
+    {
+        terminal_write(
+            "\ncp: too many arguments\n"
+        );
+
+        return;
+    }
+
+    if (fs_exists(src) == 0)
+    {
+        terminal_write(
+            "\ncp: source file not found\n"
+        );
+
+        return;
+    }
+
+    if (fs_exists(dst))
+    {
+        terminal_write(
+            "\ncp: destination already exists\n"
+        );
+
+        return;
+    }
+
+    int src_fd =
+        fs_open(src);
+
+    if (src_fd < 0)
+    {
+        terminal_write(
+            "\ncp: could not open source\n"
+        );
+
+        return;
+    }
+
+    if (fs_create(dst) == 0)
+    {
+        fs_close(src_fd);
+
+        terminal_write(
+            "\ncp: could not create destination\n"
+        );
+
+        return;
+    }
+
+    int dst_fd =
+        fs_open(dst);
+
+    if (dst_fd < 0)
+    {
+        fs_close(src_fd);
+
+        terminal_write(
+            "\ncp: could not open destination\n"
+        );
+
+        return;
+    }
+
+    /*
+     * Copy in fixed-size chunks rather than allocating a
+     * FS_MAX_FILE_SIZE scratch buffer on the stack.
+     */
+    char chunk[512];
+    int ok = 1;
+
+    while (1)
+    {
+        int n =
+            fs_read(
+                src_fd,
+                chunk,
+                sizeof(chunk)
+            );
+
+        if (n < 0)
+        {
+            ok = 0;
+            break;
+        }
+
+        if (n == 0)
+        {
+            break;
+        }
+
+        int w =
+            fs_write(
+                dst_fd,
+                chunk,
+                (uint32_t)n
+            );
+
+        if (w < 0 || w != n)
+        {
+            ok = 0;
+            break;
+        }
+    }
+
+    fs_close(src_fd);
+    fs_close(dst_fd);
+
+    if (!ok)
+    {
+        /*
+         * Best-effort cleanup of the partially written copy.
+         */
+        fs_delete(dst);
+
+        terminal_write(
+            "\ncp: copy failed\n"
+        );
+
+        return;
+    }
+
+    terminal_write(
+        "\nFile copied.\n"
+    );
+}
+
+static void shell_cmd_mv(
+    const char* args
+)
+{
+    char src[
+        FS_MAX_FILENAME
+    ];
+
+    char dst[
+        FS_MAX_FILENAME
+    ];
+
+    if (shell_get_token(&args, src, sizeof(src)) == 0)
+    {
+        terminal_write(
+            "\nmv: usage mv <src> <dst>\n"
+        );
+
+        return;
+    }
+
+    if (shell_get_token(&args, dst, sizeof(dst)) == 0)
+    {
+        terminal_write(
+            "\nmv: usage mv <src> <dst>\n"
+        );
+
+        return;
+    }
+
+    args =
+        shell_skip_spaces(args);
+
+    if (*args != '\0')
+    {
+        terminal_write(
+            "\nmv: too many arguments\n"
+        );
+
+        return;
+    }
+
+    if (fs_exists(src) == 0)
+    {
+        terminal_write(
+            "\nmv: source file not found\n"
+        );
+
+        return;
+    }
+
+    if (fs_exists(dst))
+    {
+        terminal_write(
+            "\nmv: destination already exists\n"
+        );
+
+        return;
+    }
+
+    /*
+     * This filesystem has no in-place rename, so mv is
+     * implemented as copy-then-delete: the full contents of
+     * `src` are read into `dst` and `src` is only removed once
+     * that copy has fully succeeded.
+     */
+    int src_fd =
+        fs_open(src);
+
+    if (src_fd < 0)
+    {
+        terminal_write(
+            "\nmv: could not open source\n"
+        );
+
+        return;
+    }
+
+    if (fs_create(dst) == 0)
+    {
+        fs_close(src_fd);
+
+        terminal_write(
+            "\nmv: could not create destination\n"
+        );
+
+        return;
+    }
+
+    int dst_fd =
+        fs_open(dst);
+
+    if (dst_fd < 0)
+    {
+        fs_close(src_fd);
+
+        terminal_write(
+            "\nmv: could not open destination\n"
+        );
+
+        return;
+    }
+
+    char chunk[512];
+    int ok = 1;
+
+    while (1)
+    {
+        int n =
+            fs_read(
+                src_fd,
+                chunk,
+                sizeof(chunk)
+            );
+
+        if (n < 0)
+        {
+            ok = 0;
+            break;
+        }
+
+        if (n == 0)
+        {
+            break;
+        }
+
+        int w =
+            fs_write(
+                dst_fd,
+                chunk,
+                (uint32_t)n
+            );
+
+        if (w < 0 || w != n)
+        {
+            ok = 0;
+            break;
+        }
+    }
+
+    fs_close(src_fd);
+    fs_close(dst_fd);
+
+    if (!ok)
+    {
+        fs_delete(dst);
+
+        terminal_write(
+            "\nmv: move failed\n"
+        );
+
+        return;
+    }
+
+    if (fs_delete(src) == 0)
+    {
+        terminal_write(
+            "\nmv: warning: copied but could not remove source\n"
+        );
+
+        return;
+    }
+
+    terminal_write(
+        "\nFile moved.\n"
+    );
+}
+
+static void shell_cmd_nano(
+    const char* args
+)
+{
+    char name[
+        FS_MAX_FILENAME
+    ];
+
+    if (shell_get_token(&args, name, sizeof(name)) == 0)
+    {
+        terminal_write(
+            "\nnano: usage nano <filename>\n"
+        );
+
+        return;
+    }
+
+    args =
+        shell_skip_spaces(args);
+
+    if (*args != '\0')
+    {
+        terminal_write(
+            "\nnano: too many arguments\n"
+        );
+
+        return;
+    }
+
+    nano_open(name);
+}
+
+void shell_execute(void)
 {
     command_line[command_length] = '\0';
 
@@ -488,26 +1338,149 @@ static void shell_execute(void)
             "  echo    - print text\n"
             "  syscall - test system calls\n"
             "  threads - show thread states\n"
-            "  hwinfo  - show actual CPU hardware information\n"
+            "  hwinfo  - show CPU hardware information\n"
+            "  ls      - list files\n"
+            "  touch   - create a file\n"
+            "  cat     - read a file\n"
+            "  write   - write a file\n"
+            "  rm      - delete a file\n"
+            "  cp      - copy a file\n"
+            "  mv      - move/rename a file\n"
+            "  nano    - full-screen text editor (^O save, ^X exit)\n"
             "  meminfo - show actual memory information\n"
         );
 
         return;
     }
-        if (string_equals(
-            command_line,
-            "hwinfo"))
-    {
-        shell_print_cpu_info();
-
-        return;
-    }
+        
 
         if (string_equals(
             command_line,
             "meminfo"))
     {
         shell_print_memory_info();
+
+        return;
+    }
+
+    /*
+     * Hardware info.
+     */
+    if (string_equals(
+            command_line,
+            "hwinfo"))
+    {
+        shell_cmd_hwinfo();
+
+        return;
+    }
+
+    /*
+     * List files.
+     */
+    if (string_equals(
+            command_line,
+            "ls"))
+    {
+        shell_cmd_ls();
+
+        return;
+    }
+
+    /*
+     * Create a file.
+     */
+    if (string_starts_with(
+            command_line,
+            "touch "))
+    {
+        shell_cmd_touch(
+            command_line + 6
+        );
+
+        return;
+    }
+
+    /*
+     * Delete a file.
+     */
+    if (string_starts_with(
+            command_line,
+            "rm "))
+    {
+        shell_cmd_rm(
+            command_line + 3
+        );
+
+        return;
+    }
+
+    /*
+     * Read a file.
+     */
+    if (string_starts_with(
+            command_line,
+            "cat "))
+    {
+        shell_cmd_cat(
+            command_line + 4
+        );
+
+        return;
+    }
+
+    /*
+     * Write a file.
+     */
+    if (string_starts_with(
+            command_line,
+            "write "))
+    {
+        shell_cmd_write(
+            command_line + 6
+        );
+
+        return;
+    }
+
+    /*
+     * Copy a file.
+     */
+    if (string_starts_with(
+            command_line,
+            "cp "))
+    {
+        shell_cmd_cp(
+            command_line + 3
+        );
+
+        return;
+    }
+
+    /*
+     * Move (rename) a file.
+     */
+    if (string_starts_with(
+            command_line,
+            "mv "))
+    {
+        shell_cmd_mv(
+            command_line + 3
+        );
+
+        return;
+    }
+
+    /*
+     * Full-screen text editor.
+     */
+    if (string_starts_with(
+            command_line,
+            "nano "))
+    {
+        shell_cmd_nano(
+            command_line + 5
+        );
 
         return;
     }
@@ -906,6 +1879,25 @@ void shell_keyboard_enter(void)
 
     shell_execute();
 
+    /*
+     * If the command just run was `nano ...`, nano_open() has
+     * already taken over the screen and the keyboard (see
+     * keyboard.c's dispatch_enter(), which stops routing Enter
+     * here at all once nano is active). Redrawing the shell
+     * prompt now would immediately overwrite nano's UI, so skip
+     * it; the prompt is redrawn once nano exits instead (see
+     * shell_resume_prompt(), called from nano on Ctrl+X).
+     */
+    if (nano_active())
+    {
+        command_length = 0;
+        cursor_position = 0;
+        history_position = -1;
+        command_line[0] = '\0';
+
+        return;
+    }
+
     terminal_putchar('\n');
 
     terminal_write(
@@ -923,6 +1915,21 @@ void shell_keyboard_enter(void)
     history_position = -1;
 
     command_line[0] = '\0';
+
+    terminal_update_cursor();
+}
+
+void shell_resume_prompt(void)
+{
+    terminal_write(
+        SHELL_PROMPT
+    );
+
+    prompt_x =
+        terminal_get_cursor_x();
+
+    prompt_y =
+        terminal_get_cursor_y();
 
     terminal_update_cursor();
 }
