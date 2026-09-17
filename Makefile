@@ -22,7 +22,10 @@ KERNEL_OBJECTS = \
     $(BUILD)/boot.o \
     $(BUILD)/kernel.o \
     $(BUILD)/hardware.o \
+    $(BUILD)/pci.o \
+    $(BUILD)/blockdev.o \
     $(BUILD)/ata.o \
+    $(BUILD)/ramdisk.o \
     $(BUILD)/fs.o \
     $(BUILD)/memory.o \
     $(BUILD)/terminal.o \
@@ -54,6 +57,16 @@ $(BUILD)/kernel.o: src/kernel/kernel.c | $(BUILD)
 
 $(BUILD)/hardware.o: src/kernel/hardware.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/pci.o: src/kernel/pci.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/blockdev.o: src/kernel/blockdev.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/ramdisk.o: src/kernel/ramdisk.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/ata.o: src/kernel/ata.c | $(BUILD)
 	$(CC) $(CFLAGS) -c src/kernel/ata.c -o $(BUILD)/ata.o
 

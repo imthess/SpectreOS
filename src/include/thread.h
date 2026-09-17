@@ -72,9 +72,9 @@ void thread_mark_running(uint32_t index);
 
 thread_state_t thread_get_state(uint32_t index);
 
-#endif
-
 /* Thread blocking / wakeup */
 void thread_wake(uint32_t thread_id);
 void thread_wake_one(void);
+
+#endif
 

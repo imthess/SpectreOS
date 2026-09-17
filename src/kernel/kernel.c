@@ -9,7 +9,10 @@
 #include "pmm.h"
 #include "paging.h"
 #include "keyboard.h"
+#include "pci.h"
+#include "blockdev.h"
 #include "ata.h"
+#include "ramdisk.h"
 #include "fs.h"
 #include "thread.h"
 #include "scheduler.h"
@@ -115,10 +118,44 @@ void kernel_main(
 
     /*
      * --------------------------------------------------------
+     * PCI BUS
+     * --------------------------------------------------------
+     *
+     * Informational only for now - nothing depends on this
+     * yet, but it gives the shell's `pci` command something
+     * real to report instead of nothing.
+     */
+    pci_scan_bus();
+
+    terminal_write(
+        "PCI: OK (devices: "
+    );
+
+    terminal_write_uint(
+        pci_device_count()
+    );
+
+    terminal_write(
+        ")\n"
+    );
+
+    /*
+     * --------------------------------------------------------
+     * BLOCK DEVICES
+     * --------------------------------------------------------
+     *
+     * Must happen before any driver (ATA, RAM disk, ...)
+     * registers itself.
+     */
+    blockdev_init();
+
+    /*
+     * --------------------------------------------------------
      * ATA STORAGE
      * --------------------------------------------------------
      *
-     * Must happen before filesystem initialization.
+     * Must happen before filesystem initialization. Also
+     * registers itself with the block device layer above.
      */
     if (!ata_init())
     {
@@ -132,6 +169,23 @@ void kernel_main(
     terminal_write(
         "ATA: OK\n"
     );
+
+    /*
+     * --------------------------------------------------------
+     * RAM DISK
+     * --------------------------------------------------------
+     *
+     * A second block device, purely to prove the abstraction
+     * above supports more than one backend. The filesystem
+     * still boots from the ATA disk; nothing currently mounts
+     * the RAM disk automatically.
+     */
+    if (ramdisk_init() >= 0)
+    {
+        terminal_write(
+            "RAM disk: OK\n"
+        );
+    }
 
     /*
      * --------------------------------------------------------

@@ -2,6 +2,9 @@
 
 #include "pmm.h"
 
+extern uint32_t _kernel_start;
+extern uint32_t _kernel_end;
+
 /*
  * Multiboot 0 memory information.
  */
@@ -301,6 +304,18 @@ void pmm_init(uint32_t multiboot_info)
         0,
         1024 * 1024
     );
+
+
+    uint32_t kernel_start =
+        (uint32_t)&_kernel_start;
+
+    uint32_t kernel_end =
+        (uint32_t)&_kernel_end;
+
+    reserve_range(
+        kernel_start,
+        kernel_end - kernel_start
+    );
 }
 
 
@@ -348,8 +363,7 @@ void pmm_free_frame(uint32_t address)
     /*
      * First 1 MiB is permanently reserved.
      */
-    if (frame <
-        (1024 * 1024 / PMM_FRAME_SIZE))
+    if (frame < (1024 * 1024 / PMM_FRAME_SIZE))
     {
         return;
     }

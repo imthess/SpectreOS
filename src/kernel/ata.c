@@ -1,6 +1,7 @@
 #include <stdint.h>
 
 #include "ata.h"
+#include "blockdev.h"
 
 /*
  * Primary ATA / IDE controller.
@@ -282,6 +283,19 @@ int ata_init(void)
     }
 
     disk_ready = 1;
+
+    /*
+     * Register with the block device layer so anything written
+     * against blockdev.h (rather than ata.h directly) can reach
+     * this disk too. Existing ata_* callers (fs.c) are untouched.
+     */
+    blockdev_register(
+        "ata0",
+        ata_present,
+        ata_sector_count,
+        ata_read_sector,
+        ata_write_sector
+    );
 
     return 1;
 }

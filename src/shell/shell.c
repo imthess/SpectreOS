@@ -10,6 +10,8 @@
 #include "pit.h"
 #include "memory.h"
 #include "nano.h"
+#include "pci.h"
+#include "blockdev.h"
 
 #define SHELL_MAX_LINE       128
 #define SHELL_HISTORY_SIZE   16
@@ -633,6 +635,110 @@ static void shell_cmd_hwinfo(void)
     terminal_write(
         "\n"
     );
+}
+
+static void shell_write_hex16(
+    uint16_t value
+)
+{
+    static const char digits[] = "0123456789ABCDEF";
+
+    terminal_write("0x");
+
+    for (int shift = 12; shift >= 0; shift -= 4)
+    {
+        terminal_putchar(
+            digits[(value >> shift) & 0xF]
+        );
+    }
+}
+
+static void shell_cmd_pci(void)
+{
+    uint32_t count = pci_device_count();
+
+    terminal_write(
+        "\nPCI devices: "
+    );
+
+    shell_write_uint(count);
+
+    terminal_write("\n");
+
+    for (uint32_t i = 0; i < count; i++)
+    {
+        const pci_device_t* device =
+            pci_get_device(i);
+
+        if (device == 0)
+        {
+            continue;
+        }
+
+        terminal_write("  ");
+        shell_write_uint(device->bus);
+        terminal_write(":");
+        shell_write_uint(device->device);
+        terminal_write(".");
+        shell_write_uint(device->function);
+        terminal_write("  vendor=");
+        shell_write_hex16(device->vendor_id);
+        terminal_write(" device=");
+        shell_write_hex16(device->device_id);
+        terminal_write("  ");
+        terminal_write(
+            pci_class_name(device->class_code)
+        );
+        terminal_write("\n");
+    }
+
+    if (count == 0)
+    {
+        terminal_write(
+            "  (none found - re-run pci scan or check hardware)\n"
+        );
+    }
+}
+
+static void shell_cmd_disks(void)
+{
+    uint32_t count = blockdev_count();
+
+    terminal_write(
+        "\nBlock devices: "
+    );
+
+    shell_write_uint(count);
+
+    terminal_write("\n");
+
+    for (uint32_t i = 0; i < count; i++)
+    {
+        const block_device_t* device =
+            blockdev_get(i);
+
+        if (device == 0)
+        {
+            continue;
+        }
+
+        terminal_write("  ");
+        shell_write_uint(i);
+        terminal_write(": ");
+        terminal_write(device->name);
+
+        terminal_write(
+            blockdev_present(i) ?
+            "  present  sectors=" :
+            "  absent   sectors="
+        );
+
+        shell_write_uint(
+            blockdev_sector_count(i)
+        );
+
+        terminal_write("\n");
+    }
 }
 
 static void shell_cmd_ls(void)
@@ -1348,6 +1454,8 @@ void shell_execute(void)
             "  mv      - move/rename a file\n"
             "  nano    - full-screen text editor (^O save, ^X exit)\n"
             "  meminfo - show actual memory information\n"
+            "  pci     - list detected PCI devices\n"
+            "  disks   - list registered block devices\n"
         );
 
         return;
@@ -1371,6 +1479,30 @@ void shell_execute(void)
             "hwinfo"))
     {
         shell_cmd_hwinfo();
+
+        return;
+    }
+
+    /*
+     * PCI device list.
+     */
+    if (string_equals(
+            command_line,
+            "pci"))
+    {
+        shell_cmd_pci();
+
+        return;
+    }
+
+    /*
+     * Block device list.
+     */
+    if (string_equals(
+            command_line,
+            "disks"))
+    {
+        shell_cmd_disks();
 
         return;
     }

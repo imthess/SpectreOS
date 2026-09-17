@@ -3,7 +3,37 @@
 #include "scheduler.h"
 #include "thread.h"
 
-static int32_t scheduler_current = -1;
+/*
+ * ============================================================
+ * NOTE ON "CURRENT THREAD" STATE
+ *
+ * This module used to keep its own private `scheduler_current`
+ * variable in parallel with thread.c's `current_thread`. The
+ * two were never synchronized: thread_init() sets thread.c's
+ * copy to 0 for the bootstrap thread, while this file started
+ * its own copy at -1. That meant:
+ *
+ *   1. The bootstrap/idle thread (index 0) was never selected
+ *      by find_round_robin()/find_fcfs()/find_priority(),
+ *      because they only pick THREAD_READY threads, and nothing
+ *      ever transitioned thread 0 out of THREAD_RUNNING back to
+ *      THREAD_READY - scheduler_tick() only did that for
+ *      whichever thread scheduler_current pointed at, which was
+ *      never thread 0.
+ *
+ *   2. Anything that called thread_get_current()/
+ *      thread_get_current_index() (both in thread.c) could
+ *      disagree with what the scheduler actually had running,
+ *      since nothing here ever called thread_set_current().
+ *
+ * Fix: this file no longer keeps its own copy. thread.c is the
+ * single source of truth for "which thread is running", and
+ * this file reads/updates it via thread_get_current_index()/
+ * thread_set_current(). This also makes thread 0 reachable by
+ * the scheduler like any other thread once the bootstrap thread
+ * is preempted for the first time.
+ * ============================================================
+ */
 
 static uint32_t scheduler_switches = 0;
 
@@ -20,7 +50,7 @@ static scheduler_policy_t scheduler_policy =
 static int32_t find_round_robin(void)
 {
     int32_t current =
-        scheduler_current;
+        thread_get_current_index();
 
     for (uint32_t offset = 1;
          offset <= THREAD_MAX;
@@ -164,7 +194,12 @@ static int32_t find_next_thread(void)
 
 void scheduler_init(void)
 {
-    scheduler_current = -1;
+    /*
+     * Deliberately does not touch thread.c's current-thread
+     * state: thread_init() (called before this) already set it
+     * to the bootstrap thread, and that is the single source of
+     * truth now. See the note above find_round_robin().
+     */
 
     scheduler_switches = 0;
 
@@ -181,14 +216,17 @@ void scheduler_init(void)
 
 uint32_t scheduler_tick(uint32_t current_esp)
 {
+    int32_t current_index =
+        thread_get_current_index();
+
     /*
      * Save the interrupted thread context.
      */
-    if (scheduler_current >= 0)
+    if (current_index >= 0)
     {
         thread_t* current =
             thread_get(
-                (uint32_t)scheduler_current
+                (uint32_t)current_index
             );
 
         if (current != 0)
@@ -232,7 +270,7 @@ uint32_t scheduler_tick(uint32_t current_esp)
     /*
      * Count actual thread changes.
      */
-    if (next != scheduler_current)
+    if (next != current_index)
     {
         scheduler_switches++;
 
@@ -241,8 +279,7 @@ uint32_t scheduler_tick(uint32_t current_esp)
         );
     }
 
-    scheduler_current =
-        next;
+    thread_set_current(next);
 
     selected->state =
         THREAD_RUNNING;
