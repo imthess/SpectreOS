@@ -60,7 +60,7 @@ EDX = argument 3
 Defined syscall IDs include:
 
 | ID | Name | Purpose |
-|---:|---|---|
+| ---: | --- | --- |
 | 1 | `SYS_WRITE` | Kernel text output path |
 | 2 | `SYS_READ` | Reserved/early input interface |
 | 3 | `SYS_EXIT` | Reserved/early process termination interface |
