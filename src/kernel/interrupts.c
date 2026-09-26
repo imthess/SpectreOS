@@ -6,6 +6,7 @@
 #include "pic.h"
 #include "pit.h"
 #include "scheduler.h"
+#include "serial.h"
 
 static volatile uint64_t timer_ticks = 0;
 
@@ -15,12 +16,35 @@ static volatile uint64_t timer_ticks = 0;
  *
  * Writes directly to VGA text memory rather than going through
  * terminal.c - by the time we get here something has already
- * gone wrong, so this stays dependency-free on purpose.
+ * gone wrong, so this stays dependency-free on purpose. It
+ * mirrors to the serial console too (see serial.h) - deliberately
+ * NOT through terminal_putchar()'s mirroring, for the same
+ * reason: this path must keep working even if something about
+ * the rest of the kernel's state is corrupted. The two panic_put_*
+ * helpers track the row they're writing to and emit a newline to
+ * serial whenever it changes, so the serial log reads as one
+ * line per row of the VGA panic screen instead of one long run
+ * of text.
  * ============================================================
  */
 
 #define PANIC_ATTR   0x4F00u   /* white on red */
 #define PANIC_COLS   80
+
+static uint32_t serial_panic_last_row = 0xFFFFFFFFu;
+
+static void panic_serial_sync_row(uint32_t row)
+{
+    if (row != serial_panic_last_row)
+    {
+        if (serial_panic_last_row != 0xFFFFFFFFu)
+        {
+            serial_write("\n");
+        }
+
+        serial_panic_last_row = row;
+    }
+}
 
 static const char* exception_names[32] =
 {
@@ -59,6 +83,9 @@ static void panic_put_string(
     const char* text
 )
 {
+    panic_serial_sync_row(row);
+    serial_write(text);
+
     volatile uint16_t* video =
         (volatile uint16_t*)0xB8000;
 
@@ -78,6 +105,24 @@ static void panic_put_hex32(
 )
 {
     static const char digits[] = "0123456789ABCDEF";
+
+    panic_serial_sync_row(row);
+
+    char hex_text[11];
+    hex_text[0] = '0';
+    hex_text[1] = 'x';
+
+    for (uint32_t i = 0; i < 8; i++)
+    {
+        uint32_t shift = (7 - i) * 4;
+
+        hex_text[2 + i] =
+            digits[(value >> shift) & 0xF];
+    }
+
+    hex_text[10] = '\0';
+
+    serial_write(hex_text);
 
     volatile uint16_t* video =
         (volatile uint16_t*)0xB8000;
@@ -183,6 +228,8 @@ void exception_handler(registers_t* regs)
         11, 0,
         "System halted."
     );
+
+    serial_write("\n");
 
     while (1)
     {

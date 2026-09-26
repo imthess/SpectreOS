@@ -9,6 +9,67 @@ static uint16_t syscall_cursor = 0;
 
 /*
  * ------------------------------------------------------------
+ * Pointer/length validation
+ *
+ * There is no per-process address space yet (see the project
+ * notes on why: that's a much larger, harder-to-verify piece of
+ * work than this pass takes on), so "validate this pointer
+ * belongs to the calling process's memory" isn't a meaningful
+ * check to write here - there is only one address space, and
+ * every syscall currently runs in it. What IS meaningful, and
+ * cheap, and catches real classes of bug even in this single-
+ * address-space world:
+ *
+ *   1. Reject NULL and near-NULL pointers (below
+ *      SYSCALL_MIN_VALID_ADDRESS) outright, rather than letting
+ *      them reach fs.c/memory.c and fault deep inside kernel
+ *      logic with a less obvious stack trace. This is backed up
+ *      by a real hardware guard now too - see the page-0
+ *      unmapping in paging.c - so a NULL that slips past this
+ *      check still faults safely rather than corrupting memory.
+ *   2. Cap every unbounded-length operation (currently only
+ *      syscall_write(), which walked a caller string until a
+ *      NUL byte with no limit at all) so a bad or non-terminated
+ *      pointer can't cause an unbounded read.
+ *   3. Cap every caller-supplied size argument to a sane
+ *      maximum before it reaches fs.c, as defense in depth on
+ *      top of whatever fs.c already enforces internally.
+ * ------------------------------------------------------------
+ */
+
+#define SYSCALL_MIN_VALID_ADDRESS 0x1000u
+#define SYSCALL_MAX_STRING_LENGTH 4096u
+#define SYSCALL_MAX_IO_SIZE       65536u
+
+static int syscall_ptr_is_valid(const void* ptr)
+{
+    uint32_t address = (uint32_t)(uintptr_t)ptr;
+
+    return address >= SYSCALL_MIN_VALID_ADDRESS;
+}
+
+/*
+ * Bounded strnlen - never reads past `max_length` bytes even if
+ * the caller's pointer is not NUL-terminated within that range.
+ */
+static uint32_t syscall_bounded_string_length(
+    const char* text,
+    uint32_t max_length
+)
+{
+    uint32_t length = 0;
+
+    while (length < max_length &&
+           text[length] != '\0')
+    {
+        length++;
+    }
+
+    return length;
+}
+
+/*
+ * ------------------------------------------------------------
  * do_syscall()
  *
  * Issues a real INT 0x80, matching the ABI syscall_handler()
@@ -69,8 +130,10 @@ static uint32_t do_syscall(
 
 static uint32_t syscall_hwinfo(cpu_info_t* info)
 {
-    if (info == 0)
+    if (!syscall_ptr_is_valid(info))
+    {
         return 0;
+    }
 
     hardware_get_cpu_info(info);
     return 1;
@@ -78,7 +141,7 @@ static uint32_t syscall_hwinfo(cpu_info_t* info)
 
 static uint32_t syscall_meminfo(memory_info_t* info)
 {
-    if (info == 0)
+    if (!syscall_ptr_is_valid(info))
     {
         return 0;
     }
@@ -88,21 +151,28 @@ static uint32_t syscall_meminfo(memory_info_t* info)
 
 static uint32_t syscall_write(const char* text)
 {
-    if (text == 0)
+    if (!syscall_ptr_is_valid(text))
+    {
         return 0;
+    }
+
+    uint32_t length =
+        syscall_bounded_string_length(
+            text,
+            SYSCALL_MAX_STRING_LENGTH
+        );
 
     volatile uint16_t* video =
         (volatile uint16_t*)0xB8000;
 
-    while (*text)
+    for (uint32_t i = 0; i < length; i++)
     {
         if (syscall_cursor >= 80 * 25)
             syscall_cursor = 0;
 
         video[syscall_cursor++] =
             (uint16_t)(0x07 << 8) |
-            (uint8_t)*text++;
-
+            (uint8_t)text[i];
     }
 
     return 1;
@@ -146,11 +216,22 @@ uint32_t syscall_dispatch(
             return 0;
 
         case SYS_OPEN:
+            if (!syscall_ptr_is_valid((const void*)arg1))
+            {
+                return (uint32_t)-1;
+            }
+
             return (uint32_t)fs_open(
                 (const char*)arg1
             );
 
         case SYS_READ_FILE:
+            if (!syscall_ptr_is_valid((const void*)arg2) ||
+                arg3 > SYSCALL_MAX_IO_SIZE)
+            {
+                return (uint32_t)-1;
+            }
+
             return (uint32_t)fs_read(
                 (int)arg1,
                 (void*)arg2,
@@ -158,6 +239,12 @@ uint32_t syscall_dispatch(
             );
 
         case SYS_WRITE_FILE:
+            if (!syscall_ptr_is_valid((const void*)arg2) ||
+                arg3 > SYSCALL_MAX_IO_SIZE)
+            {
+                return (uint32_t)-1;
+            }
+
             return (uint32_t)fs_write(
                 (int)arg1,
                 (const void*)arg2,
@@ -170,16 +257,32 @@ uint32_t syscall_dispatch(
             );
 
         case SYS_CREATE:
+            if (!syscall_ptr_is_valid((const void*)arg1))
+            {
+                return 0;
+            }
+
             return (uint32_t)fs_create(
                 (const char*)arg1
             );
 
         case SYS_DELETE:
+            if (!syscall_ptr_is_valid((const void*)arg1))
+            {
+                return 0;
+            }
+
             return (uint32_t)fs_delete(
                 (const char*)arg1
             );
 
         case SYS_LIST:
+            if (!syscall_ptr_is_valid((const void*)arg1) ||
+                arg2 > SYSCALL_MAX_IO_SIZE)
+            {
+                return (uint32_t)-1;
+            }
+
             return (uint32_t)fs_list(
                 (char*)arg1,
                 arg2

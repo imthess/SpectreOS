@@ -35,7 +35,7 @@ static inline uint32_t inl(
     return value;
 }
 
-static uint32_t pci_config_read_dword(
+uint32_t pci_config_read_dword(
     uint8_t bus,
     uint8_t device,
     uint8_t function,
@@ -52,6 +52,25 @@ static uint32_t pci_config_read_dword(
     outl(PCI_CONFIG_ADDRESS, address);
 
     return inl(PCI_CONFIG_DATA);
+}
+
+void pci_config_write_dword(
+    uint8_t bus,
+    uint8_t device,
+    uint8_t function,
+    uint8_t offset,
+    uint32_t value
+)
+{
+    uint32_t address =
+        ((uint32_t)1 << 31) |
+        ((uint32_t)bus << 16) |
+        ((uint32_t)(device & 0x1F) << 11) |
+        ((uint32_t)(function & 0x07) << 8) |
+        ((uint32_t)offset & 0xFC);
+
+    outl(PCI_CONFIG_ADDRESS, address);
+    outl(PCI_CONFIG_DATA, value);
 }
 
 static uint16_t pci_read_vendor_id(

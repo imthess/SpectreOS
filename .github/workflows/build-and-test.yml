@@ -1,0 +1,42 @@
+name: Build and Boot Test
+
+# This is the automated version of scripts/ci_boot_test.sh - see
+# that file's own header comment for the important caveat that
+# neither it nor this workflow has ever actually been run
+# end-to-end, since the environment that wrote them has no
+# network access to pull a runner image or install packages.
+# The first real run of this workflow is the first real test of
+# both the kernel AND this pipeline together.
+
+"on":
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-boot-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build the reproducible dev/test image
+        run: docker build -t spectreos-dev .
+
+      - name: Compile and boot-test under QEMU (headless)
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}":/spectreos \
+            spectreos-dev \
+            make test
+
+      - name: Upload captured boot log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-log
+          path: build/boot_test.log
+          if-no-files-found: warn

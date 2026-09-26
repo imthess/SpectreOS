@@ -3,6 +3,7 @@
 #include "keyboard.h"
 #include "shell.h"
 #include "nano.h"
+#include "auth.h"
 
 #define KEYBOARD_DATA_PORT   0x60
 #define KEYBOARD_STATUS_PORT 0x64
@@ -123,15 +124,20 @@ void keyboard_init(void)
 }
 
 /*
- * Dispatch helpers: route to nano while it owns the keyboard,
- * otherwise route to the shell. Keeping this as small wrapper
- * functions means the scancode-handling logic below never has
- * to branch on "which mode are we in" more than once per key.
+ * Dispatch helpers: route to the login/setup gate while it owns
+ * the keyboard, then to nano while it owns the keyboard,
+ * otherwise the shell. auth_login_active() is checked first so
+ * neither nano nor the shell ever sees a keystroke meant for a
+ * password prompt.
  */
 
 static void dispatch_character(char c)
 {
-    if (nano_active())
+    if (auth_login_active())
+    {
+        auth_keyboard_character(c);
+    }
+    else if (nano_active())
     {
         nano_keyboard_character(c);
     }
@@ -143,7 +149,11 @@ static void dispatch_character(char c)
 
 static void dispatch_enter(void)
 {
-    if (nano_active())
+    if (auth_login_active())
+    {
+        auth_keyboard_enter();
+    }
+    else if (nano_active())
     {
         nano_keyboard_enter();
     }
@@ -155,7 +165,11 @@ static void dispatch_enter(void)
 
 static void dispatch_backspace(void)
 {
-    if (nano_active())
+    if (auth_login_active())
+    {
+        auth_keyboard_backspace();
+    }
+    else if (nano_active())
     {
         nano_keyboard_backspace();
     }
@@ -167,6 +181,11 @@ static void dispatch_backspace(void)
 
 static void dispatch_delete(void)
 {
+    if (auth_login_active())
+    {
+        return;
+    }
+
     if (nano_active())
     {
         nano_keyboard_delete();
@@ -179,6 +198,11 @@ static void dispatch_delete(void)
 
 static void dispatch_left(void)
 {
+    if (auth_login_active())
+    {
+        return;
+    }
+
     if (nano_active())
     {
         nano_keyboard_left();
@@ -191,6 +215,11 @@ static void dispatch_left(void)
 
 static void dispatch_right(void)
 {
+    if (auth_login_active())
+    {
+        return;
+    }
+
     if (nano_active())
     {
         nano_keyboard_right();
@@ -203,6 +232,11 @@ static void dispatch_right(void)
 
 static void dispatch_up(void)
 {
+    if (auth_login_active())
+    {
+        return;
+    }
+
     if (nano_active())
     {
         nano_keyboard_up();
@@ -215,6 +249,11 @@ static void dispatch_up(void)
 
 static void dispatch_down(void)
 {
+    if (auth_login_active())
+    {
+        return;
+    }
+
     if (nano_active())
     {
         nano_keyboard_down();
@@ -227,6 +266,11 @@ static void dispatch_down(void)
 
 static void dispatch_home(void)
 {
+    if (auth_login_active())
+    {
+        return;
+    }
+
     if (nano_active())
     {
         nano_keyboard_home();
@@ -239,6 +283,11 @@ static void dispatch_home(void)
 
 static void dispatch_end(void)
 {
+    if (auth_login_active())
+    {
+        return;
+    }
+
     if (nano_active())
     {
         nano_keyboard_end();

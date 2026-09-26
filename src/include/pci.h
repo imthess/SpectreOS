@@ -41,4 +41,25 @@ const pci_device_t* pci_get_device(uint32_t index);
  */
 const char* pci_class_name(uint8_t class_code);
 
+/*
+ * Raw configuration-space access, exposed for drivers (rtl8139.c)
+ * that need to read a BAR or flip bits in the command register
+ * (bus mastering, I/O space enable) themselves, beyond what the
+ * scan results in pci_device_t capture.
+ */
+uint32_t pci_config_read_dword(
+    uint8_t bus,
+    uint8_t device,
+    uint8_t function,
+    uint8_t offset
+);
+
+void pci_config_write_dword(
+    uint8_t bus,
+    uint8_t device,
+    uint8_t function,
+    uint8_t offset,
+    uint32_t value
+);
+
 #endif

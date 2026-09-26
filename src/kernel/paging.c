@@ -60,6 +60,23 @@ void paging_init(void)
             | PAGE_WRITE;
     }
 
+    /*
+     * Leave page 0 (virtual/physical 0x00000000-0x00000FFF)
+     * unmapped as a hardware-enforced NULL-pointer guard. It
+     * was previously mapped present+writable like every other
+     * page, which meant a NULL pointer dereference anywhere in
+     * the kernel silently read or corrupted whatever happened
+     * to be at physical address 0 instead of faulting. Now it
+     * raises a real page fault, caught by the panic handler in
+     * interrupts.c (which prints the fault address from CR2) -
+     * so a NULL-pointer bug becomes an immediate, diagnosable
+     * crash instead of quiet memory corruption. Nothing in this
+     * codebase intentionally reads or writes address 0 (checked
+     * before making this change), so nothing legitimate should
+     * ever hit this fault.
+     */
+    first_page_table[0] = 0;
+
 
     /*
      * Page directory entry 0 points

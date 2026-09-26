@@ -3,6 +3,7 @@
 #include "ramdisk.h"
 #include "blockdev.h"
 #include "ata.h"
+#include "fast_mem.h"
 
 /*
  * Small fixed-size RAM disk. 512 sectors * 512 bytes = 256 KiB.
@@ -40,10 +41,7 @@ static int ramdisk_read_sector(
     uint8_t* destination = (uint8_t*)buffer;
     const uint8_t* source = storage[lba];
 
-    for (uint32_t i = 0; i < ATA_SECTOR_SIZE; i++)
-    {
-        destination[i] = source[i];
-    }
+    fast_mem_copy(destination, source, ATA_SECTOR_SIZE);
 
     return 1;
 }
@@ -63,10 +61,7 @@ static int ramdisk_write_sector(
     const uint8_t* source = (const uint8_t*)buffer;
     uint8_t* destination = storage[lba];
 
-    for (uint32_t i = 0; i < ATA_SECTOR_SIZE; i++)
-    {
-        destination[i] = source[i];
-    }
+    fast_mem_copy(destination, source, ATA_SECTOR_SIZE);
 
     return 1;
 }
@@ -75,10 +70,7 @@ int ramdisk_init(void)
 {
     for (uint32_t i = 0; i < RAMDISK_SECTORS; i++)
     {
-        for (uint32_t j = 0; j < ATA_SECTOR_SIZE; j++)
-        {
-            storage[i][j] = 0;
-        }
+        fast_mem_set(storage[i], 0, ATA_SECTOR_SIZE);
     }
 
     ready = 1;

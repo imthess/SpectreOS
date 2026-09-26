@@ -1,6 +1,7 @@
 #include <stdint.h>
 
 #include "hardware.h"
+#include "serial.h"
 #include "memory.h"
 #include "gdt.h"
 #include "idt.h"
@@ -10,10 +11,16 @@
 #include "paging.h"
 #include "keyboard.h"
 #include "pci.h"
+#include "net.h"
 #include "blockdev.h"
 #include "ata.h"
 #include "ramdisk.h"
+#include "rng.h"
+#include "crypto_disk.h"
+#include "secure_wipe.h"
 #include "fs.h"
+#include "identity.h"
+#include "auth.h"
 #include "thread.h"
 #include "scheduler.h"
 #include "syscall.h"
@@ -40,12 +47,28 @@ void kernel_main(
      */
     __asm__ volatile ("cli");
 
+    /*
+     * Before anything else: serial_init() so that every
+     * subsequent terminal_write() (which now mirrors to serial
+     * via terminal_putchar - see terminal.c) is captured from
+     * the very first boot line onward. This is what an
+     * automated test harness watches instead of a display -
+     * see scripts/ci_boot_test.sh.
+     */
+    serial_init();
+
     terminal_clear();
 
     hardware_init();
 
     terminal_write(
         "SpectreOS kernel starting...\n"
+    );
+
+    terminal_write(
+        serial_present() ?
+        "Serial console: OK (COM1)\n" :
+        "Serial console: not present\n"
     );
 
     if (multiboot_magic != 0x2BADB002)
@@ -141,6 +164,30 @@ void kernel_main(
 
     /*
      * --------------------------------------------------------
+     * NETWORK STACK
+     * --------------------------------------------------------
+     *
+     * Needs the PCI scan above (to find an RTL8139 card, if
+     * present) but nothing else - safe to bring up early.
+     * Polling only: see net_poll() in the main loop below.
+     */
+    net_init();
+
+    if (net_is_up())
+    {
+        terminal_write(
+            "Network: OK (rtl8139 found)\n"
+        );
+    }
+    else
+    {
+        terminal_write(
+            "Network: no supported NIC found\n"
+        );
+    }
+
+    /*
+     * --------------------------------------------------------
      * BLOCK DEVICES
      * --------------------------------------------------------
      *
@@ -180,11 +227,90 @@ void kernel_main(
      * still boots from the ATA disk; nothing currently mounts
      * the RAM disk automatically.
      */
-    if (ramdisk_init() >= 0)
+    int ramdisk_id =
+        ramdisk_init();
+
+    if (ramdisk_id >= 0)
     {
         terminal_write(
             "RAM disk: OK\n"
         );
+    }
+
+    /*
+     * --------------------------------------------------------
+     * ENTROPY SOURCE
+     * --------------------------------------------------------
+     */
+    rng_init();
+
+    if (rng_hardware_available())
+    {
+        terminal_write(
+            "RNG: OK (hardware RDRAND)\n"
+        );
+    }
+    else
+    {
+        terminal_write(
+            "RNG: WARNING - no hardware RDRAND, "
+            "using weak software fallback\n"
+        );
+    }
+
+    /*
+     * --------------------------------------------------------
+     * DISK ENCRYPTION (AES-256-CTR)
+     * --------------------------------------------------------
+     *
+     * Demonstrates the encrypting block device layer end to
+     * end on every boot: wraps the RAM disk with a fresh random
+     * key, writes a known pattern through the encrypted view,
+     * reads it back, and separately confirms the raw bytes on
+     * the backing device are NOT the plaintext. This is not yet
+     * wired into the filesystem (fs_init() below still uses the
+     * plain ATA disk) - it proves the crypto layer itself works
+     * correctly, as a foundation for encrypting real storage.
+     */
+    if (ramdisk_id >= 0)
+    {
+        uint8_t disk_key[32];
+
+        rng_get_bytes(
+            disk_key,
+            sizeof(disk_key)
+        );
+
+        int crypto_id =
+            crypto_disk_create(
+                "cenc0",
+                (uint32_t)ramdisk_id,
+                disk_key
+            );
+
+        secure_wipe(
+            disk_key,
+            sizeof(disk_key)
+        );
+
+        if (crypto_id >= 0 &&
+            crypto_disk_self_test(
+                (uint32_t)crypto_id,
+                (uint32_t)ramdisk_id,
+                1))
+        {
+            terminal_write(
+                "Disk encryption: OK "
+                "(self-test passed)\n"
+            );
+        }
+        else
+        {
+            terminal_write(
+                "Disk encryption: FAILED "
+                "self-test\n"
+            );
+        }
     }
 
     /*
@@ -206,6 +332,42 @@ void kernel_main(
 
     terminal_write(
         "Filesystem: OK\n"
+    );
+
+    /*
+     * --------------------------------------------------------
+     * IDENTITY + ACCOUNTS
+     * --------------------------------------------------------
+     *
+     * Must happen after the filesystem, since both persist to
+     * disk. identity_load() is a no-op if no identity exists
+     * yet - the first-run wizard inside auth_start() (below,
+     * after interrupts are enabled and keyboard input works)
+     * creates one together with the first account.
+     */
+    identity_load();
+
+    auth_init();
+
+    terminal_write(
+        "Accounts: OK ("
+    );
+
+    if (identity_is_loaded())
+    {
+        terminal_write(
+            "identity present"
+        );
+    }
+    else
+    {
+        terminal_write(
+            "no identity yet"
+        );
+    }
+
+    terminal_write(
+        ")\n"
     );
 
     /*
@@ -264,12 +426,16 @@ void kernel_main(
 
     /*
      * --------------------------------------------------------
-     * SHELL
+     * LOGIN / SETUP
      * --------------------------------------------------------
      *
-     * Initialize the shell BEFORE enabling interrupts.
+     * Replaces the direct shell_init() call: the login gate
+     * (or first-run account + identity setup wizard) now owns
+     * keyboard input first and calls shell_init() itself once a
+     * session is authenticated - see auth.c and the three-way
+     * dispatch in keyboard.c.
      */
-    shell_init();
+    auth_start();
 
     /*
      * --------------------------------------------------------
@@ -293,6 +459,8 @@ void kernel_main(
      */
     while (1)
     {
+        net_poll();
+
         __asm__ volatile ("hlt");
     }
 }

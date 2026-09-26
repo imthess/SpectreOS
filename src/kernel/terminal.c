@@ -1,6 +1,7 @@
 #include <stdint.h>
 
 #include "terminal.h"
+#include "serial.h"
 
 #define VGA_MEMORY ((volatile uint16_t*)0xB8000)
 
@@ -164,6 +165,21 @@ void terminal_clear_line(void)
 
 void terminal_putchar(char c)
 {
+    /*
+     * Mirror every character to the serial console (a no-op if
+     * no COM1 was detected at boot - see serial.c) so an
+     * automated test harness can observe everything the VGA
+     * screen shows without needing a display. This is the one
+     * place all of terminal_write()'s callers funnel through,
+     * so nothing else in the codebase needs to change to be
+     * mirrored - except the panic handler in interrupts.c,
+     * which deliberately writes straight to VGA memory instead
+     * of through here (so a panic can still display even if
+     * something about the terminal state itself is corrupted),
+     * and mirrors to serial separately for that reason.
+     */
+    serial_putchar(c);
+
     if (c == '\n')
     {
         cursor_x = 0;
