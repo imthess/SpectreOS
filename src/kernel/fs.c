@@ -3,8 +3,38 @@
 #include "fs.h"
 #include "ata.h"
 #include "fast_mem.h"
+#include "blockdev.h"
+#include "crypto_disk.h"
+#include "sha256.h"
+#include "rng.h"
+#include "secure_wipe.h"
 
 #define FS_MAX_HANDLES 16
+
+/*
+ * ------------------------------------------------------------
+ * AT-REST ENCRYPTION (new as of this pass; see the design note
+ * above fs_setup_disk_device() below for the full explanation,
+ * including the honest limit of this approach: the key lives in
+ * cleartext in the superblock, not derived from a password, so
+ * this defends against casual inspection of a raw disk image,
+ * not against a motivated attacker with the format documented.
+ * A password-derived key is real future work, blocked on
+ * reordering boot so fs_init() runs after a successful login
+ * instead of before it (auth.c currently needs fs.c to even
+ * check a password - a chicken-and-egg problem not solved here).
+ *
+ * Fully backward compatible: superblock.reserved[] is guaranteed
+ * all-zero on every disk this project has ever formatted (see
+ * fs_format()'s mem_zero() of the whole struct before any field
+ * is set) - that is exactly the signal used below to mean
+ * "legacy, unencrypted disk", so an existing populated disk is
+ * never touched or reinterpreted by this change.
+ * ------------------------------------------------------------
+ */
+#define FS_ENCRYPTION_MAGIC   0x53454E43u /* "SENC" */
+#define FS_ENCRYPTION_SEED_LEN 16
+#define FS_ENCRYPTION_NONCE_LEN 8
 
 static fs_superblock_t superblock;
 static uint8_t bitmap[FS_BITMAP_SECTORS * 512];
@@ -12,6 +42,177 @@ static fs_inode_t inodes[FS_MAX_FILES];
 static fs_handle_t handles[FS_MAX_HANDLES];
 
 static int filesystem_ready = 0;
+
+/*
+ * Every sector I/O in this file except the superblock's own (see
+ * save_superblock()/load_superblock(), which always go straight
+ * to ata_read_sector()/ata_write_sector() - sector 0 itself is
+ * never encrypted, since it has to be readable before any key is
+ * known) goes through these two, which route to whichever device
+ * fs_setup_disk_device() decided this disk actually is: ata0
+ * directly for a legacy unencrypted disk, or a crypto_disk.c
+ * wrapper around it for one with encryption enabled.
+ */
+static uint32_t fs_disk_device_id = 0;
+static int fs_encrypted = 0;
+
+static int fs_disk_read_sector(
+    uint32_t lba,
+    void* buffer
+)
+{
+    return blockdev_read_sector(
+        fs_disk_device_id,
+        lba,
+        buffer
+    );
+}
+
+static int fs_disk_write_sector(
+    uint32_t lba,
+    const void* buffer
+)
+{
+    return blockdev_write_sector(
+        fs_disk_device_id,
+        lba,
+        buffer
+    );
+}
+
+/*
+ * Called once, after a valid (legacy or encrypted) superblock is
+ * already loaded into `superblock`, or - for a blank disk about
+ * to be formatted - right before fs_format() performs its first
+ * sector write. Decides which block device the rest of this file
+ * reads/writes through for everything except sector 0.
+ *
+ * `formatting`: 1 if this is a fresh fs_format() on a blank disk
+ * (in which case a new random seed is generated and written into
+ * `superblock.reserved[]` for fs_format() to persist), 0 if
+ * mounting an existing, already-populated disk (in which case
+ * `superblock.reserved[]` is only ever read, never changed).
+ *
+ * Returns 1 on success, 0 on failure (e.g. the crypto_disk.c
+ * registry is full, or ata0 isn't registered as a block device
+ * for some reason).
+ */
+static int fs_setup_disk_device(int formatting)
+{
+    int ata_id = blockdev_find_by_name("ata0");
+
+    if (ata_id < 0)
+    {
+        return 0;
+    }
+
+    if (formatting)
+    {
+        /*
+         * 16-byte random seed (the key is derived from it below)
+         * and an 8-byte random nonce, both stored in the plaintext
+         * superblock: reserved[0] = magic, [1..4] = seed,
+         * [5..6] = nonce, [7] = unused. The nonce MUST be
+         * persisted - see crypto_disk_create_with_nonce() for why
+         * a nonce regenerated each boot silently destroys all
+         * data on the next mount.
+         */
+        uint8_t material[FS_ENCRYPTION_SEED_LEN + FS_ENCRYPTION_NONCE_LEN];
+
+        rng_get_bytes(material, sizeof(material));
+
+        superblock.reserved[0] = FS_ENCRYPTION_MAGIC;
+
+        for (uint32_t w = 0; w < 6; w++)
+        {
+            superblock.reserved[1 + w] =
+                ((uint32_t)material[w * 4 + 0] << 24) |
+                ((uint32_t)material[w * 4 + 1] << 16) |
+                ((uint32_t)material[w * 4 + 2] << 8) |
+                ((uint32_t)material[w * 4 + 3]);
+        }
+
+        secure_wipe(material, sizeof(material));
+    }
+
+    if (superblock.reserved[0] != FS_ENCRYPTION_MAGIC)
+    {
+        /*
+         * Legacy, unencrypted disk (or encryption simply wasn't
+         * requested) - read/write ata0 directly. Behaves exactly
+         * as this project always has.
+         */
+        fs_disk_device_id = (uint32_t)ata_id;
+        fs_encrypted = 0;
+
+        return 1;
+    }
+
+    uint8_t seed[FS_ENCRYPTION_SEED_LEN];
+    uint8_t nonce[FS_ENCRYPTION_NONCE_LEN];
+
+    for (uint32_t w = 0; w < 4; w++)
+    {
+        seed[w * 4 + 0] = (uint8_t)(superblock.reserved[1 + w] >> 24);
+        seed[w * 4 + 1] = (uint8_t)(superblock.reserved[1 + w] >> 16);
+        seed[w * 4 + 2] = (uint8_t)(superblock.reserved[1 + w] >> 8);
+        seed[w * 4 + 3] = (uint8_t)(superblock.reserved[1 + w]);
+    }
+
+    for (uint32_t w = 0; w < 2; w++)
+    {
+        nonce[w * 4 + 0] = (uint8_t)(superblock.reserved[5 + w] >> 24);
+        nonce[w * 4 + 1] = (uint8_t)(superblock.reserved[5 + w] >> 16);
+        nonce[w * 4 + 2] = (uint8_t)(superblock.reserved[5 + w] >> 8);
+        nonce[w * 4 + 3] = (uint8_t)(superblock.reserved[5 + w]);
+    }
+
+    /*
+     * key = SHA-256("SPECTREOS-FSKEY" || seed): a domain-separated
+     * hash of the stored 16-byte seed, giving the 32 bytes AES-256
+     * needs. This is a convenient way to store a key in half the
+     * space, not a security boundary - the seed is exactly as
+     * sensitive as the key it produces, and both sit in the same
+     * plaintext sector either way.
+     */
+    uint8_t key[32];
+
+    {
+        sha256_ctx_t ctx;
+
+        sha256_init(&ctx);
+        sha256_update(&ctx, "SPECTREOS-FSKEY", 15);
+        sha256_update(&ctx, seed, sizeof(seed));
+        sha256_final(&ctx, key);
+    }
+
+    secure_wipe(seed, sizeof(seed));
+
+    int crypto_id =
+        crypto_disk_create_with_nonce(
+            "fsenc0",
+            (uint32_t)ata_id,
+            key,
+            nonce
+        );
+
+    secure_wipe(key, sizeof(key));
+
+    if (crypto_id < 0)
+    {
+        return 0;
+    }
+
+    fs_disk_device_id = (uint32_t)crypto_id;
+    fs_encrypted = 1;
+
+    return 1;
+}
+
+int fs_is_encrypted(void)
+{
+    return fs_encrypted;
+}
 
 /*
  * ------------------------------------------------------------
@@ -169,7 +370,7 @@ static int save_bitmap(void)
          i < FS_BITMAP_SECTORS;
          i++)
     {
-        if (!ata_write_sector(
+        if (!fs_disk_write_sector(
                 FS_BITMAP_START + i,
                 &bitmap[i * 512]))
         {
@@ -201,6 +402,12 @@ static int save_superblock(void)
         sizeof(superblock)
     );
 
+    /*
+     * Always direct, never through fs_disk_write_sector(): sector
+     * 0 itself is never encrypted - it has to be readable before
+     * any key is known (see the design note above
+     * fs_setup_disk_device()).
+     */
     return ata_write_sector(
         FS_SUPERBLOCK_SECTOR,
         block
@@ -211,6 +418,10 @@ static int load_superblock(void)
 {
     uint8_t block[512];
 
+    /*
+     * Always direct, never through fs_disk_read_sector() - see
+     * save_superblock() above.
+     */
     if (!ata_read_sector(
             FS_SUPERBLOCK_SECTOR,
             block))
@@ -299,7 +510,7 @@ static int save_inode(
 
     uint8_t block[512];
 
-    if (!ata_read_sector(
+    if (!fs_disk_read_sector(
             sector,
             block))
     {
@@ -322,7 +533,7 @@ static int save_inode(
         sizeof(fs_inode_t)
     );
 
-    return ata_write_sector(
+    return fs_disk_write_sector(
         sector,
         block
     );
@@ -354,7 +565,7 @@ static int load_inode(
 
     uint8_t block[512];
 
-    if (!ata_read_sector(
+    if (!fs_disk_read_sector(
             sector,
             block))
     {
@@ -386,7 +597,7 @@ static int load_inodes(void)
         uint32_t sector =
             FS_INODE_START + sector_index;
 
-        if (!ata_read_sector(
+        if (!fs_disk_read_sector(
                 sector,
                 block))
         {
@@ -477,7 +688,7 @@ static int dir_read_entry(
 
     uint8_t block[512];
 
-    if (!ata_read_sector(
+    if (!fs_disk_read_sector(
             lba,
             block))
     {
@@ -527,7 +738,7 @@ static int dir_write_entry(
 
     uint8_t block[512];
 
-    if (!ata_read_sector(
+    if (!fs_disk_read_sector(
             lba,
             block))
     {
@@ -540,7 +751,7 @@ static int dir_write_entry(
         sizeof(fs_dirent_t)
     );
 
-    return ata_write_sector(
+    return fs_disk_write_sector(
         lba,
         block
     );
@@ -634,7 +845,7 @@ static int allocate_sector(void)
                 sizeof(zero)
             );
 
-            if (!ata_write_sector(
+            if (!fs_disk_write_sector(
                     sector,
                     zero))
             {
@@ -728,6 +939,18 @@ int fs_format(void)
 
     superblock.root_inode =
         0;
+
+    /*
+     * Sets up at-rest encryption for this freshly formatted disk
+     * (generates a new random seed, stores it in
+     * superblock.reserved[]) and points fs_disk_read_sector()/
+     * fs_disk_write_sector() at the resulting device - must run
+     * before anything below writes a single sector through them.
+     */
+    if (!fs_setup_disk_device(1))
+    {
+        return 0;
+    }
 
     mem_zero(
         bitmap,
@@ -853,13 +1076,24 @@ int fs_init(void)
     }
 
     /*
+     * A valid superblock is loaded (legacy or encrypted - see
+     * the design note above fs_setup_disk_device()). Everything
+     * from here on reads/writes through whichever device that
+     * decides, so it must run before the bitmap load just below.
+     */
+    if (!fs_setup_disk_device(0))
+    {
+        return 0;
+    }
+
+    /*
      * Load bitmap.
      */
     for (uint32_t i = 0;
          i < FS_BITMAP_SECTORS;
          i++)
     {
-        if (!ata_read_sector(
+        if (!fs_disk_read_sector(
                 FS_BITMAP_START + i,
                 &bitmap[i * 512]))
         {
@@ -1212,7 +1446,7 @@ int fs_read(
             break;
         }
 
-        if (!ata_read_sector(
+        if (!fs_disk_read_sector(
                 inode->direct[block],
                 sector_buffer))
         {
@@ -1314,7 +1548,7 @@ int fs_write(
             inode->blocks++;
         }
 
-        if (!ata_read_sector(
+        if (!fs_disk_read_sector(
                 inode->direct[block],
                 sector_buffer))
         {
@@ -1335,7 +1569,7 @@ int fs_write(
             chunk
         );
 
-        if (!ata_write_sector(
+        if (!fs_disk_write_sector(
                 inode->direct[block],
                 sector_buffer))
         {

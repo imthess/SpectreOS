@@ -83,6 +83,7 @@ REQUIRED_OK_MARKERS=(
     "Paging: OK"
     "Scheduler: OK"
     "Threading: OK"
+    "Processes: OK"
     "System calls: OK"
     "ATA: OK"
     "RAM disk: OK"
@@ -105,6 +106,16 @@ done
 # not which variant it is.
 if ! grep -qF "RNG:" "$LOG"; then
     echo "FAIL: RNG subsystem never reported in (neither OK nor WARNING)"
+    FAILED=1
+fi
+
+# Filesystem encryption likewise has two legitimate outcomes: ON
+# for a freshly formatted disk, OFF for a legacy disk formatted
+# before at-rest encryption existed (which is deliberately left
+# alone - see fs.c's fs_setup_disk_device()). Either means the
+# filesystem itself mounted fine; only the line's presence matters.
+if ! grep -qF "Filesystem encryption:" "$LOG"; then
+    echo "FAIL: filesystem never reported its encryption status"
     FAILED=1
 fi
 

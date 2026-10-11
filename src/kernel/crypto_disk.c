@@ -254,10 +254,25 @@ static int crypto1_write_sector(
     );
 }
 
-int crypto_disk_create(
+/*
+ * Shared implementation. `nonce` of 0 means "generate a fresh
+ * random one" (crypto_disk_create(), used for throwaway disks like
+ * the boot-time RAM-disk self-test, where nothing needs to survive
+ * a reboot). A non-zero `nonce` is used as-is
+ * (crypto_disk_create_with_nonce(), required for any disk whose
+ * contents must still decrypt after a reboot: a randomly
+ * regenerated nonce on the next boot would produce a completely
+ * different keystream and turn everything already written into
+ * garbage - which is exactly what happened the first time this was
+ * tried against a persistent filesystem, and was caught by
+ * simulating a reboot against a fake disk image before it ever
+ * touched real data).
+ */
+static int crypto_disk_create_internal(
     const char* name,
     uint32_t backing_device_id,
-    const uint8_t key[32]
+    const uint8_t key[32],
+    const uint8_t* nonce
 )
 {
     if (name == 0 || key == 0)
@@ -289,10 +304,20 @@ int crypto_disk_create(
     slot->backing_device_id =
         backing_device_id;
 
-    rng_get_bytes(
-        slot->nonce,
-        sizeof(slot->nonce)
-    );
+    if (nonce != 0)
+    {
+        for (uint32_t i = 0; i < sizeof(slot->nonce); i++)
+        {
+            slot->nonce[i] = nonce[i];
+        }
+    }
+    else
+    {
+        rng_get_bytes(
+            slot->nonce,
+            sizeof(slot->nonce)
+        );
+    }
 
     slot->in_use = 1;
 
@@ -316,6 +341,40 @@ int crypto_disk_create(
             crypto1_write_sector
         );
     }
+}
+
+int crypto_disk_create(
+    const char* name,
+    uint32_t backing_device_id,
+    const uint8_t key[32]
+)
+{
+    return crypto_disk_create_internal(
+        name,
+        backing_device_id,
+        key,
+        0
+    );
+}
+
+int crypto_disk_create_with_nonce(
+    const char* name,
+    uint32_t backing_device_id,
+    const uint8_t key[32],
+    const uint8_t nonce[8]
+)
+{
+    if (nonce == 0)
+    {
+        return -1;
+    }
+
+    return crypto_disk_create_internal(
+        name,
+        backing_device_id,
+        key,
+        nonce
+    );
 }
 
 int crypto_disk_self_test(

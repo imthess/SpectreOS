@@ -26,6 +26,13 @@ jobs:
       - name: Build the reproducible dev/test image
         run: docker build -t spectreos-dev .
 
+      - name: Filesystem encryption + legacy-compatibility regression test
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}":/spectreos \
+            spectreos-dev \
+            make fstest
+
       - name: Compile and boot-test under QEMU (headless)
         run: |
           docker run --rm \

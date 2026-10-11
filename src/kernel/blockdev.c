@@ -154,3 +154,42 @@ int blockdev_write_sector(
 
     return device->write_sector(lba, buffer);
 }
+
+static int blockdev_name_equals(
+    const char* a,
+    const char* b
+)
+{
+    uint32_t i = 0;
+
+    while (a[i] && b[i])
+    {
+        if (a[i] != b[i])
+        {
+            return 0;
+        }
+
+        i++;
+    }
+
+    return a[i] == '\0' && b[i] == '\0';
+}
+
+int blockdev_find_by_name(const char* name)
+{
+    if (name == 0)
+    {
+        return -1;
+    }
+
+    for (uint32_t i = 0; i < BLOCKDEV_MAX; i++)
+    {
+        if (devices[i].in_use &&
+            blockdev_name_equals(devices[i].name, name))
+        {
+            return (int)i;
+        }
+    }
+
+    return -1;
+}

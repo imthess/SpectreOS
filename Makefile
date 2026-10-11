@@ -62,6 +62,7 @@ KERNEL_OBJECTS = \
     $(BUILD)/thread.o \
     $(BUILD)/sync.o \
     $(BUILD)/scheduler.o \
+    $(BUILD)/process.o \
 	$(BUILD)/nano.o \
     $(BUILD)/pit.o
 
@@ -199,6 +200,9 @@ $(BUILD)/sync.o: src/kernel/sync.c | $(BUILD)
 $(BUILD)/scheduler.o: src/kernel/scheduler.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/process.o: src/kernel/process.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/nano.o: src/kernel/nano.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -273,6 +277,14 @@ run-headless: iso $(DISK)
 # completes without one of these subsystems reporting OK.
 test: iso $(DISK)
 	bash scripts/ci_boot_test.sh
+
+# Filesystem encryption + backward-compatibility regression test.
+# Pure userspace (no QEMU, nasm, or root): builds the real fs.c plus a
+# frozen pre-encryption copy against a fake file-backed ATA disk and
+# checks encrypted-at-rest, survives-a-reboot, and legacy-disk-still-
+# works. See tests/fs_harness/run.sh for exactly what it pins down.
+fstest:
+	bash tests/fs_harness/run.sh
 
 clean:
 	rm -rf build/*

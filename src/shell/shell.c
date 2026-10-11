@@ -4,6 +4,7 @@
 #include "terminal.h"
 #include "syscall.h"
 #include "thread.h"
+#include "process.h"
 #include "pmm.h"
 #include "hardware.h"
 #include "fs.h"
@@ -1011,6 +1012,261 @@ static void shell_cmd_netinfo(void)
 #define PING_MAX_ITERATIONS  3000000u
 #define PING_ARP_RETRY_EVERY 50000u
 
+/*
+ * ------------------------------------------------------------
+ * MULTI-THREAD SCHEDULER PROOF
+ *
+ * Two worker threads that each print a few progress lines with
+ * a real (if untuned) delay between them, so that completing
+ * even one iteration takes noticeably longer than one PIT timer
+ * tick. That delay matters: without it, a thread could run its
+ * *entire* loop to completion inside a single scheduling slice,
+ * and the two threads would simply execute back-to-back rather
+ * than genuinely interleaved - which would look identical to
+ * "the scheduler doesn't really preempt", even if it does.
+ *
+ * IMPORTANT: this command creates the threads and returns
+ * immediately - it does NOT wait for them to run, and it can't:
+ * shell commands execute synchronously inside the keyboard's own
+ * interrupt handler (see the note on PING_MAX_ITERATIONS above),
+ * and the PIT timer interrupt that actually drives
+ * scheduler_tick() cannot fire until that handler returns. So
+ * the two threads' output will appear *after* this command's own
+ * prompt reappears - asynchronously, spontaneously, possibly
+ * interleaved with whatever you type next. That's not a bug;
+ * it's the actual proof the milestone asks for: switching driven
+ * by a real timer interrupt, not by anything synchronous.
+ * ------------------------------------------------------------
+ */
+
+#define THREADTEST_ITERATIONS   5
+#define THREADTEST_SPIN_PER_ITER 5000000u
+
+static void threadtest_spin(void)
+{
+    for (volatile uint32_t i = 0;
+         i < THREADTEST_SPIN_PER_ITER;
+         i++)
+    {
+    }
+}
+
+/*
+ * Prints one progress line as a single atomic unit with respect
+ * to timer preemption. Without this, two threads' own code (which
+ * genuinely does run with interrupts enabled - that's what makes
+ * real preemption possible at all) can each be mid-way through
+ * their own terminal_write()/shell_write_uint() calls when the
+ * timer interrupts one and switches to the other, producing
+ * output like "[thread [thread A] iteration 5\nB] iteration 5\n" -
+ * exactly what was observed in testing. No data was ever at risk
+ * (nothing here touches shared kernel state), it only ever
+ * affected readability of this demo's own output.
+ *
+ * Safe specifically because this is only ever called from a
+ * thread's own entry-point code (the timer-driven switch path),
+ * never from inside another interrupt handler's synchronous
+ * execution (e.g. a shell command) - cli/sti here never races
+ * with or nests inside the keyboard IRQ the way it would if this
+ * pattern were applied to terminal_write() globally. See the
+ * long note above PING_MAX_ITERATIONS for why synchronous
+ * shell-command code runs with interrupts already disabled.
+ */
+static void threadtest_print_progress(
+    const char* label,
+    uint32_t iteration
+)
+{
+    __asm__ volatile ("cli");
+
+    terminal_write(label);
+    terminal_write(" iteration ");
+    shell_write_uint(iteration);
+    terminal_write("\n");
+
+    __asm__ volatile ("sti");
+}
+
+static void threadtest_worker_a(void)
+{
+    for (uint32_t i = 0; i < THREADTEST_ITERATIONS; i++)
+    {
+        threadtest_print_progress("[thread A]", i + 1);
+
+        threadtest_spin();
+    }
+
+    terminal_write("[thread A] done\n");
+
+    thread_exit();
+}
+
+static void threadtest_worker_b(void)
+{
+    for (uint32_t i = 0; i < THREADTEST_ITERATIONS; i++)
+    {
+        threadtest_print_progress("[thread B]", i + 1);
+
+        threadtest_spin();
+    }
+
+    terminal_write("[thread B] done\n");
+
+    thread_exit();
+}
+
+static void shell_cmd_threadtest(void)
+{
+    terminal_write(
+        "\nCreating two test threads (A and B). Their\n"
+        "output will appear on its own over the next few\n"
+        "seconds, interleaved with whatever else happens -\n"
+        "that's the point: it can only happen once this\n"
+        "command returns and the timer interrupt is free to\n"
+        "fire again. Run `threads` again in a moment:\n"
+        "switches/runs > 0 for both, then eventually\n"
+        "TERMINATED for both, is success.\n\n"
+    );
+
+    int id_a = thread_create(threadtest_worker_a);
+    int id_b = thread_create(threadtest_worker_b);
+
+    if (id_a < 0 || id_b < 0)
+    {
+        terminal_write(
+            "Failed to create one or both threads "
+            "(thread table full?).\n"
+        );
+
+        return;
+    }
+
+    terminal_write("Created thread A (id ");
+    shell_write_uint((uint32_t)id_a);
+    terminal_write(") and thread B (id ");
+    shell_write_uint((uint32_t)id_b);
+    terminal_write(").\n");
+}
+
+/*
+ * ------------------------------------------------------------
+ * PROCESS ABSTRACTION PROOF
+ *
+ * Same milestone as threadtest above, but exercised through
+ * process.c's thin wrapper instead of calling thread_create()
+ * directly - proving the wrapper adds real value (PID/PPID
+ * bookkeeping, automatic fd cleanup) without breaking anything
+ * the raw thread test already proved. Worker A opens a real
+ * file and registers it via process_register_fd(), then RETURNS
+ * NORMALLY (no thread_exit() call) specifically to exercise the
+ * trampoline's automatic-cleanup-on-return path in process.c -
+ * a process that calls thread_exit() directly instead would
+ * bypass that cleanup, which is exactly why threadtest's workers
+ * above (which do call thread_exit() directly) are a different,
+ * simpler pair of functions rather than being reused here.
+ * ------------------------------------------------------------
+ */
+
+static void processtest_worker_a(void)
+{
+    uint32_t pid = process_get_current_pid();
+
+    if (!fs_exists("proctest_a.dat"))
+    {
+        fs_create("proctest_a.dat");
+    }
+
+    int fd = fs_open("proctest_a.dat");
+
+    if (fd >= 0)
+    {
+        process_register_fd(pid, fd);
+    }
+
+    for (uint32_t i = 0; i < THREADTEST_ITERATIONS; i++)
+    {
+        __asm__ volatile ("cli");
+
+        terminal_write("[process A, pid ");
+        shell_write_uint(pid);
+        terminal_write("] iteration ");
+        shell_write_uint(i + 1);
+        terminal_write("\n");
+
+        __asm__ volatile ("sti");
+
+        threadtest_spin();
+    }
+
+    terminal_write(
+        "[process A] returning normally - "
+        "automatic fd cleanup runs now\n"
+    );
+
+    /*
+     * No thread_exit() call here - process_trampoline() (see
+     * process.c) runs the fd cleanup and calls thread_exit()
+     * itself once this function returns.
+     */
+}
+
+static void processtest_worker_b(void)
+{
+    uint32_t pid = process_get_current_pid();
+
+    for (uint32_t i = 0; i < THREADTEST_ITERATIONS; i++)
+    {
+        __asm__ volatile ("cli");
+
+        terminal_write("[process B, pid ");
+        shell_write_uint(pid);
+        terminal_write("] iteration ");
+        shell_write_uint(i + 1);
+        terminal_write("\n");
+
+        __asm__ volatile ("sti");
+
+        threadtest_spin();
+    }
+
+    terminal_write("[process B] returning normally\n");
+}
+
+static void shell_cmd_processtest(void)
+{
+    terminal_write(
+        "\nCreating two test processes (A and B) via "
+        "process_create() rather than thread_create()\n"
+        "directly. Same asynchronous-output behavior as "
+        "`threadtest` - see `ps` in a moment for PID/\n"
+        "PPID/state. Process A also opens a real file "
+        "(proctest_a.dat) to exercise automatic fd\n"
+        "cleanup on normal return.\n\n"
+    );
+
+    int pid_a =
+        process_create(processtest_worker_a, 0);
+
+    int pid_b =
+        process_create(processtest_worker_b, 0);
+
+    if (pid_a < 0 || pid_b < 0)
+    {
+        terminal_write(
+            "Failed to create one or both processes "
+            "(process table or thread table full?).\n"
+        );
+
+        return;
+    }
+
+    terminal_write("Created process A (pid ");
+    shell_write_uint((uint32_t)pid_a);
+    terminal_write(") and process B (pid ");
+    shell_write_uint((uint32_t)pid_b);
+    terminal_write(").\n");
+}
+
 static void shell_cmd_ping(const char* argument)
 {
     uint32_t dest_ip;
@@ -1810,6 +2066,11 @@ void shell_execute(void)
             "  logout  - end session, return to login\n"
             "  netinfo - show MAC/IP/gateway\n"
             "  ping <ip> - send an ICMP echo request\n"
+            "  threadtest - create 2 threads, prove real "
+            "timer-driven preemption\n"
+            "  processtest - same proof via process.c's "
+            "thin wrapper\n"
+            "  ps      - list processes (PID/PPID/state)\n"
         );
 
         return;
@@ -2189,6 +2450,97 @@ if (string_equals(
                     break;
 
                 case THREAD_TERMINATED:
+                    terminal_write("TERMINATED");
+                    break;
+
+                default:
+                    terminal_write("UNKNOWN");
+                    break;
+            }
+
+            terminal_write("  switches=");
+
+            terminal_write_uint(
+                thread_get_switches(i)
+            );
+
+            terminal_write("  runs=");
+
+            terminal_write_uint(
+                thread_get_runs(i)
+            );
+
+            terminal_write("\n");
+        }
+
+        return;
+    }
+
+    /*
+     * Multi-thread scheduler proof - see the note above
+     * shell_cmd_threadtest() for why its output is asynchronous.
+     */
+    if (string_equals(
+            command_line,
+            "threadtest"))
+    {
+        shell_cmd_threadtest();
+
+        return;
+    }
+
+    /*
+     * Same proof, via the process.c wrapper instead of raw
+     * threads.
+     */
+    if (string_equals(
+            command_line,
+            "processtest"))
+    {
+        shell_cmd_processtest();
+
+        return;
+    }
+
+    /*
+     * List processes (process.c's thin wrapper over thread.c).
+     */
+    if (string_equals(
+            command_line,
+            "ps"))
+    {
+        terminal_write("\nProcesses:\n");
+
+        for (uint32_t i = 0; i < PROCESS_MAX; i++)
+        {
+            process_t* proc = process_get(i);
+
+            if (proc == 0)
+            {
+                continue;
+            }
+
+            terminal_write("  PID ");
+            terminal_write_uint(proc->pid);
+            terminal_write("  PPID ");
+            terminal_write_uint(proc->ppid);
+            terminal_write("  state=");
+
+            switch (process_get_state(proc->pid))
+            {
+                case PROCESS_READY:
+                    terminal_write("READY");
+                    break;
+
+                case PROCESS_RUNNING:
+                    terminal_write("RUNNING");
+                    break;
+
+                case PROCESS_BLOCKED:
+                    terminal_write("BLOCKED");
+                    break;
+
+                case PROCESS_TERMINATED:
                     terminal_write("TERMINATED");
                     break;
 

@@ -236,6 +236,28 @@ instruction) and mutexes built on top of them. Straightforward, standard
 single-core synchronization primitives — not exercised much yet since there's
 no real concurrent workload driving contention.
 
+### `src/kernel/process.c` / `src/include/process.h` **(added - live-tested)**
+A deliberately *thin* process abstraction over `thread.c`: a PID, a PPID, a
+small file-descriptor bookkeeping array, and the underlying thread's table
+index. It is not the full roadmap `process_t` - no page directory, no user
+stack, no ring-3 entry; every process still runs in ring 0 in the single
+shared address space. Process state is **never stored independently** - it is
+always derived live from `thread_get_state()` - specifically so it cannot
+drift out of sync with the thread table the way `scheduler.c` once did.
+All processes start at one shared `process_trampoline()` that looks itself up
+by `thread_get_current_index()`, runs the caller's real entry function, and -
+if that function *returns* normally rather than calling `thread_exit()`
+itself - closes every fd it registered (`process_register_fd()`) before
+terminating. fd tracking is bookkeeping, not isolation: `fs.c`'s handle table
+is still global to the kernel. **Live result**: `threadtest` / `processtest`
+showed genuinely interleaved output from two concurrent threads/processes,
+`threads` reporting `switches` of 26-28 per thread, and `proctest_a.dat`
+persisting after process A's automatic cleanup ran. Also confirmed in
+testing: shell commands run *inside* the keyboard interrupt handler with
+interrupts disabled, so a command that waits on `pit_get_ticks()` hangs
+forever (this froze `ping` once) - any waiting a shell command does must be a
+bounded iteration count, never timer-based.
+
 ---
 
 ## 7. Syscalls
@@ -321,6 +343,10 @@ go through `blockdev_read_sector(id, ...)` etc. rather than depending on a
 specific driver. This exact pattern is reused twice more later, for network
 interfaces (`nic.h`) and encrypted disks (`crypto_disk.c`'s fixed slots).
 
+`blockdev_find_by_name()` looks a device up by name rather than assuming a
+fixed id, and `BLOCKDEV_MAX` is 8 (it was 4, which an encrypted filesystem
+would have filled exactly: `ata0`, `ram0`, `cenc0`, `fsenc0`).
+
 ### `src/kernel/ramdisk.c` / `src/include/ramdisk.h` **(added)**
 
 An in-memory 256 KiB (512-sector) block device, registering into
@@ -347,6 +373,26 @@ up to a full 512-byte sector per call — were plain byte-at-a-time loops.
 Their bodies now delegate to `fast_mem.c`'s word-aligned implementation; the
 function names, signatures, and every call site are completely unchanged, so
 this was a zero-risk drop-in speedup.
+
+**At-rest encryption (added later)**: a freshly *formatted* disk is now
+encrypted with AES-256-CTR via `crypto_disk.c`; the superblock (sector 0) is
+always plaintext and holds an `SENC` flag, a 16-byte random seed (key =
+`SHA-256("SPECTREOS-FSKEY" || seed)`), and an 8-byte random nonce in its
+`reserved[]` words. Every other sector goes through `fs_disk_read_sector()` /
+`fs_disk_write_sector()`, which route to `ata0` directly for a legacy disk or
+to the `fsenc0` crypto wrapper for an encrypted one. **Backward compatible by
+construction**: `reserved[]` is all-zero on every disk this code ever formatted
+(`fs_format()` zeroes the whole struct first), and all-zero means "legacy,
+unencrypted" - an existing populated disk is mounted exactly as before and is
+never re-keyed or rewritten. **Honest limits**: the key sits in cleartext in
+the same disk's superblock, so this stops casual inspection of a raw image,
+not an attacker who knows the format; and because key and nonce are fixed for
+the disk's life, plain CTR reuses a sector's keystream on every rewrite, so
+two snapshots of the image taken at different times reveal the XOR of any
+changed sector's old and new plaintext. A password-derived key (and a mode
+without that weakness) is future work, blocked on reordering boot so the
+filesystem mounts *after* login - `auth.c` currently needs `fs.c` to check a
+password at all.
 
 ---
 
@@ -456,6 +502,15 @@ pointers carry no per-device context parameter, this supports a small fixed
 number of encrypted-disk "slots" (2) with duplicated trampoline functions
 rather than changing that already-working interface.
 
+`crypto_disk_create()` generates a fresh random nonce each call, which is right
+for the throwaway boot self-test over the RAM disk but **fatal for persistent
+storage** - the next boot would pick a different nonce and every sector would
+decrypt to garbage (this bug was hit for real while integrating encryption into
+the filesystem and caught by the userspace harness before it reached any real
+disk). `crypto_disk_create_with_nonce()` takes a caller-persisted nonce; use it
+for anything that must survive a reboot. Both of the 2 slots are now used at
+boot (`cenc0` self-test, `fsenc0` filesystem).
+
 ---
 
 ## 14. Identity & Authentication
@@ -558,6 +613,15 @@ socket API" — register one callback per port, no connection state — which
 is the honest scope for "minimal" without a real user/kernel boundary to
 build a heavier socket abstraction on top of.
 
+The receive path rejects any packet whose `udp_length` exceeds
+`UDP_HEADER_LEN + UDP_MAX_PAYLOAD` - the same cap `udp_send()` enforces. Before
+this, an oversized packet would be checksummed against a silently truncated
+copy (wrongly failing valid large packets) and, with the legal checksum-of-0
+"disabled" setting, would hand the full oversized length to a bound callback,
+which could overflow a fixed buffer written against the documented cap. (The
+other protocol layers were reviewed and already validate every length field
+against the actual received buffer.)
+
 ### `src/kernel/rtl8139.c` / `src/include/rtl8139.h` **(added — compiles/links only, never booted)**
 
 A real driver for the RTL8139 Ethernet card (QEMU's traditional default NIC
@@ -634,6 +698,20 @@ The `"on":` trigger key is explicitly quoted — YAML 1.1 parsers (like
 Python's PyYAML) otherwise interpret the bare word `on` as the boolean
 `true`, which is harmless for GitHub Actions' own parser but was removed
 as a needless ambiguity.
+
+### `tests/fs_harness/` and `make fstest` **(added - runnable without QEMU)**
+Builds the real `src/kernel/fs.c`, plus a *frozen copy of the pre-encryption
+one* (`legacy/fs.c`, a fixture - do not "fix" it), as ordinary userspace
+programs against a fake ATA disk backed by a plain file; each separate process
+run is a simulated reboot of a real disk image. 17 checks: a fresh disk is
+encrypted at rest (no plaintext anywhere in the raw image) and still readable
+after reboots; multi-sector files and deletion work; a legacy disk formatted by
+the old code still mounts, reads, and accepts writes under the new code, its
+`reserved[]` and superblock byte-for-byte untouched, and the old code can still
+read what the new code wrote. Mutation-checked: reintroducing the per-boot
+random-nonce bug, or silently bypassing encryption, makes it fail loudly.
+Mirrors the kernel's real boot order (`cenc0` self-test claims a crypto slot
+before the filesystem claims the next). Runs in CI before the boot test.
 
 ---
 

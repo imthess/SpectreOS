@@ -20,7 +20,7 @@
  * ============================================================
  */
 
-#define BLOCKDEV_MAX   4
+#define BLOCKDEV_MAX   8
 #define BLOCKDEV_NAME_MAX 16
 
 typedef int (*blockdev_present_fn)(void);
@@ -86,5 +86,16 @@ int blockdev_write_sector(
     uint32_t lba,
     const void* buffer
 );
+
+/*
+ * Finds a registered device by its exact name (e.g. "ata0").
+ * Returns its id, or -1 if no device with that name is
+ * registered. Safer than assuming a fixed id for a device whose
+ * registration order isn't the caller's own responsibility to
+ * track - fs.c uses this rather than hardcoding "ata0 is always
+ * device 0", which happens to be true today only because of
+ * kernel.c's current init order.
+ */
+int blockdev_find_by_name(const char* name);
 
 #endif

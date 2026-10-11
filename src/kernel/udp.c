@@ -172,6 +172,26 @@ void udp_handle_packet(
         return;
     }
 
+    /*
+     * Reject anything claiming to be larger than this
+     * implementation's own send-side cap (udp_send() never emits
+     * more than UDP_HEADER_LEN + UDP_MAX_PAYLOAD). Without this,
+     * a received packet could declare a udp_length up to
+     * whatever IP allows (~1480 bytes) - larger than the fixed
+     * verify_packet buffer below, which would silently checksum
+     * a truncated copy (incorrectly failing otherwise-valid large
+     * packets), and - if the checksum field is 0, a legal way to
+     * disable verification per RFC 768 - the untruncated length
+     * would reach whatever callback is bound via udp_bind()
+     * unchecked, which could overflow a fixed-size buffer in a
+     * future callback written against the documented
+     * UDP_MAX_PAYLOAD contract.
+     */
+    if (udp_length > (UDP_HEADER_LEN + UDP_MAX_PAYLOAD))
+    {
+        return;
+    }
+
     if (checksum != 0)
     {
         uint8_t verify_packet[UDP_HEADER_LEN + UDP_MAX_PAYLOAD];

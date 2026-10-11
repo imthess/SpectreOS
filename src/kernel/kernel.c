@@ -22,6 +22,7 @@
 #include "identity.h"
 #include "auth.h"
 #include "thread.h"
+#include "process.h"
 #include "scheduler.h"
 #include "syscall.h"
 #include "shell.h"
@@ -267,10 +268,16 @@ void kernel_main(
      * end on every boot: wraps the RAM disk with a fresh random
      * key, writes a known pattern through the encrypted view,
      * reads it back, and separately confirms the raw bytes on
-     * the backing device are NOT the plaintext. This is not yet
-     * wired into the filesystem (fs_init() below still uses the
-     * plain ATA disk) - it proves the crypto layer itself works
-     * correctly, as a foundation for encrypting real storage.
+     * the backing device are NOT the plaintext. This particular
+     * instance ("cenc0", over the RAM disk) is purely a boot-time
+     * proof that the crypto layer itself works - the real
+     * filesystem's own encryption (fs.c's "fsenc0", over the ATA
+     * disk, only on freshly formatted disks - see
+     * fs_setup_disk_device()) is a separate instance of the same
+     * crypto_disk.c code, set up inside fs_init() below. Both
+     * together use both of crypto_disk.c's CRYPTO_DISK_MAX_SLOTS
+     * (2), so there is no room for a third encrypted disk
+     * without adding more trampoline functions there.
      */
     if (ramdisk_id >= 0)
     {
@@ -334,6 +341,12 @@ void kernel_main(
         "Filesystem: OK\n"
     );
 
+    terminal_write(
+        fs_is_encrypted() ?
+        "Filesystem encryption: ON (AES-256-CTR, fsenc0)\n" :
+        "Filesystem encryption: OFF (legacy unencrypted disk)\n"
+    );
+
     /*
      * --------------------------------------------------------
      * IDENTITY + ACCOUNTS
@@ -384,9 +397,17 @@ void kernel_main(
      *
      * Initialize the subsystem only.
      *
-     * Do NOT create the previous experimental test threads
-     * here. Their unfinished context-switch path was causing
-     * the invalid EIP=0x00000003 exception.
+     * UPDATE: the invalid EIP=0x00000003 crash mentioned here
+     * was root-caused and fixed - scheduler.c used to keep its
+     * own private `scheduler_current` variable completely out of
+     * sync with this file's `current_thread`, which (among other
+     * things) made the bootstrap thread itself unreachable by
+     * the round-robin selector. That's fixed; scheduler.c now
+     * reads/writes this file's state directly. Real multi-thread
+     * creation is now exercised on demand via the `threadtest`
+     * and `processtest` shell commands rather than automatically
+     * at boot, so a boot that never runs either of those commands
+     * behaves exactly as it always did.
      */
     thread_init();
 
@@ -398,14 +419,28 @@ void kernel_main(
      * --------------------------------------------------------
      * SCHEDULER
      * --------------------------------------------------------
-     *
-     * Initialize scheduler state, but don't force an
-     * experimental context switch from the PIT yet.
      */
     scheduler_init();
 
     terminal_write(
         "Scheduler: OK\n"
+    );
+
+    /*
+     * --------------------------------------------------------
+     * PROCESSES
+     * --------------------------------------------------------
+     *
+     * A thin wrapper over the threads above - see process.h for
+     * the full design note on what this does and deliberately
+     * does not yet do (no paging, no ring-3). Safe to initialize
+     * here regardless of whether anything ever calls
+     * process_create() this boot.
+     */
+    process_init();
+
+    terminal_write(
+        "Processes: OK\n"
     );
 
     /*

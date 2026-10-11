@@ -73,6 +73,15 @@ int fs_init(void);
 int fs_format(void);
 int fs_ready(void);
 
+/*
+ * 1 if the mounted disk's bitmap/inode/data sectors are
+ * encrypted at rest (AES-256-CTR, see fs.c's
+ * fs_setup_disk_device() for the full design and its honest
+ * limits), 0 for a legacy unencrypted disk. Meaningless before
+ * fs_init() has run.
+ */
+int fs_is_encrypted(void);
+
 int fs_create(
     const char* name
 );
