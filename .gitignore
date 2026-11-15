@@ -1,0 +1,26 @@
+# Build artifacts
+build/
+
+# Generated disk images
+disk.img
+disk_enc.img
+
+# Generated ISO and kernel binary
+iso/*.iso
+iso/boot/spectreos.bin
+
+# Compiled files
+*.o
+*.d
+*.bin
+
+# Backup files
+*.orig
+*.bak
+*~
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
