@@ -254,9 +254,14 @@ void kernel_main(
     else
     {
         terminal_write(
+<<<<<<< HEAD
             "RNG: no RDRAND - using keystroke-timing "
             "entropy pool (asks for input before "
             "creating keys)\n"
+=======
+            "RNG: WARNING - no hardware RDRAND, "
+            "using weak software fallback\n"
+>>>>>>> origin/main
         );
     }
 

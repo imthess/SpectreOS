@@ -33,6 +33,7 @@
 #define AUTH_PASSWORD_MAX    64
 #define AUTH_SALT_SIZE       16
 #define AUTH_HASH_SIZE       32
+<<<<<<< HEAD
 #define AUTH_PASSWORD_MIN    8
 
 /*
@@ -45,6 +46,9 @@
 #define AUTH_PBKDF2_ITERATIONS        600000
 /* Count used by account databases written before per-record counts. */
 #define AUTH_PBKDF2_LEGACY_ITERATIONS 4096
+=======
+#define AUTH_PBKDF2_ITERATIONS 4096
+>>>>>>> origin/main
 
 /*
  * Loads the account database from disk if present. Always

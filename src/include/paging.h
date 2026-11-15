@@ -9,6 +9,7 @@ void paging_enable(void);
 
 uint32_t paging_get_directory(void);
 
+<<<<<<< HEAD
 /* Page-table entry flag bits (x86 4 KiB pages). */
 #define PAGING_PRESENT 0x001u
 #define PAGING_WRITE   0x002u
@@ -35,4 +36,6 @@ int paging_range_ok(
     uint32_t required_flags
 );
 
+=======
+>>>>>>> origin/main
 #endif

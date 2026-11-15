@@ -4,7 +4,10 @@
 #include "shell.h"
 #include "nano.h"
 #include "auth.h"
+<<<<<<< HEAD
 #include "rng.h"
+=======
+>>>>>>> origin/main
 
 #define KEYBOARD_DATA_PORT   0x60
 #define KEYBOARD_STATUS_PORT 0x64
@@ -305,6 +308,7 @@ void keyboard_handler(void)
         inb(KEYBOARD_DATA_PORT);
 
     /*
+<<<<<<< HEAD
      * Every key press/release is an entropy event: the scancode
      * and, more importantly, the exact CPU timestamp at which the
      * interrupt arrived (see rng.c).
@@ -312,6 +316,8 @@ void keyboard_handler(void)
     rng_add_entropy(scancode);
 
     /*
+=======
+>>>>>>> origin/main
      * Extended scancode prefix.
      */
     if (scancode == 0xE0)

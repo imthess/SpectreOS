@@ -539,6 +539,56 @@ static int save_inode(
     );
 }
 
+<<<<<<< HEAD
+=======
+static int load_inode(
+    uint32_t index
+)
+{
+    if (index >= FS_MAX_FILES)
+    {
+        return 0;
+    }
+
+    uint32_t offset =
+        index * FS_INODE_SIZE;
+
+    uint32_t sector =
+        FS_INODE_START +
+        (offset / 512);
+
+    uint32_t inside =
+        offset % 512;
+
+    if (inside + FS_INODE_SIZE > 512)
+    {
+        return 0;
+    }
+
+    uint8_t block[512];
+
+    if (!fs_disk_read_sector(
+            sector,
+            block))
+    {
+        return 0;
+    }
+
+    mem_zero(
+        &inodes[index],
+        sizeof(fs_inode_t)
+    );
+
+    mem_copy(
+        &inodes[index],
+        &block[inside],
+        sizeof(fs_inode_t)
+    );
+
+    return 1;
+}
+
+>>>>>>> origin/main
 static int load_inodes(void)
 {
     uint8_t block[512];

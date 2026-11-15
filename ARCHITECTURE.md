@@ -12,11 +12,17 @@ Status tags used below:
 - **(modified)** — an original file that was later changed.
 - **verified** — checked against an independent reference (test vectors, a
   second library, or randomized comparison against libc) before being trusted.
+<<<<<<< HEAD
 - **booted** — the kernel has been booted in QEMU and driven through the PS/2
   keyboard by `make test-interactive`. Tags of the form "compiles/links only"
   that appeared in earlier revisions of this document are obsolete: the whole
   kernel, including the RTL8139 driver (real ARP + ICMP round trip to the
   QEMU gateway), now runs under test.
+=======
+- **compiles/links only, never booted** — the honest limit of what could be
+  checked in the environment this was built in: no `nasm`, `qemu`, or network
+  access were available, so nothing here has ever actually run.
+>>>>>>> origin/main
 
 ---
 
@@ -266,6 +272,7 @@ bounded iteration count, never timer-based.
 
 ### `src/kernel/syscall.c` / `src/include/syscall.h` (original, **modified**)
 
+<<<<<<< HEAD
 The `INT 0x80` handler: a switch dispatching on a syscall number to
 `hardware_get_cpu_info()`, `memory_get_info()`, VGA text output, or the
 filesystem functions. **Argument validation** is backed by the live page
@@ -282,6 +289,21 @@ success and 0 on failure. **Limits**: single shared address space, no page has
 the user bit yet, and data buffers are read in place after the check (no
 copy-in), which is sound only while there is no preemptible userspace. Tested
 by `selftest` (including fabricated ring-0 and ring-3 frames).
+=======
+The `INT 0x80` handler: a big switch statement dispatching on a syscall
+number to `hardware_get_cpu_info()`, `memory_get_info()`, VGA text output, or
+the filesystem functions (`fs_open`/`fs_read`/`fs_write`/etc.). **Modification
+(hardening)**: previously, several handlers had inconsistent or missing
+`NULL` checks, and `syscall_write()` walked a caller-supplied string with no
+length limit at all — a bad or non-terminated pointer could read forever.
+Now: every pointer-taking syscall rejects `NULL` *and* near-NULL addresses
+(below `0x1000`, backed up by the real page-0 hardware guard in `paging.c`);
+`syscall_write()` is capped at 4096 bytes; every file-I/O syscall caps its
+size argument at 65536 bytes before it ever reaches `fs.c`. Explicitly scoped
+to what's meaningful in a single-address-space kernel — this is *not*
+per-process pointer validation (there are no per-process address spaces to
+validate against yet).
+>>>>>>> origin/main
 
 ---
 
@@ -403,6 +425,7 @@ password at all.
 
 ## 11. Shell & Interactive Layer
 
+<<<<<<< HEAD
 ### `src/shell/` and `src/include/shell.h`, `shell_internal.h` (original, heavily **modified**)
 
 The command-line interface, split by responsibility:
@@ -419,6 +442,19 @@ The command-line interface, split by responsibility:
 `shell_internal.h` is the private interface between these files. Also:
 `selftest` (runs `selftest.c`: paging, syscall validation, RNG, sync) and
 `ps`, `threads`, `syscall`, `help`, `clear`, `echo`.
+=======
+### `src/shell/shell.c` / `src/include/shell.h` (original, heavily **modified**)
+
+The command-line interface: line editing (cursor movement, history,
+backspace/delete), a large dispatch chain matching typed commands to
+handler functions, and the prompt/redraw logic. Original commands: `help`,
+`clear`, `ls`, `cat`, `touch`, `rm`, `write`, `cp`, `mv`, `echo`, `meminfo`,
+`hwinfo`, `nano`, plus debug commands (`mem`, `ticks`, `threads`, `syscall`).
+**Added across this project's development**: `pci`, `disks`, `crypttest`,
+`whoami`, `logout`, `netinfo`, `ping <ip>`. Also holds small shared string
+helpers (`string_equals`, `string_starts_with`) that several of the newer
+modules reuse rather than duplicate.
+>>>>>>> origin/main
 
 ---
 
@@ -444,11 +480,16 @@ official test cases. Wipes its internal key-block buffer through a
 
 RFC 8018 PBKDF2-HMAC-SHA256 — used to turn a login password into a stored
 verifier (`auth.c`) and, separately, into an AES key (`crypto_disk.c`).
+<<<<<<< HEAD
 **Verified** by `tests/crypto` against Python's `hashlib.pbkdf2_hmac` across 6
 vectors (1, 2, 3, 10 and 4096 iterations; output lengths 20, 32, 45, 64
 including non-block-multiples; empty and long inputs). Compiled with `-O2`
 (see `CRYPTO_CFLAGS` in the Makefile) because `auth.c` runs 600,000 iterations
 per login.
+=======
+**Verified** against Python's `hashlib.pbkdf2_hmac` across 3 vectors (1
+iteration, 4096 iterations, and a long password/salt pair) — exact matches.
+>>>>>>> origin/main
 
 ### `src/kernel/aes256.c` / `src/include/aes256.h` **(added)**
 
@@ -457,6 +498,7 @@ the only use site (`crypto_disk.c`) runs AES in CTR mode, where both
 encryption and decryption of the actual data are done by encrypting a
 counter and XORing; the decrypt half of the AES algorithm itself is never
 needed. Halves the amount of security-critical code that has to be correct.
+<<<<<<< HEAD
 The S-box is **computed, not looked up**: multiplicative inverse in GF(2^8)
 via `x^254`, then the affine transform, with branch-free `xtime`/`gmul`. No
 secret-dependent branch or table index remains (constant-time at the C
@@ -479,13 +521,31 @@ does not reveal earlier output. `rng_is_seeded()` gates key creation:
 `auth.c` collects keystrokes at signup until it returns 1. The credit figure
 is a deliberately stingy heuristic, not a measurement; jitter under an
 emulator depends on the host.
+=======
+**Verified** against the official FIPS-197 Appendix C.3 test vector, then
+independently cross-checked against Python's `cryptography` library.
+
+### `src/kernel/rng.c` / `src/include/rng.h` **(added)**
+
+Entropy source: prefers the hardware `RDRAND` instruction (detected via
+`CPUID.1:ECX.30`), retrying up to 16 times per call since `RDRAND` can
+transiently fail under contention. Falls back, if `RDRAND` isn't available,
+to an `xorshift32` PRNG reseeded from the CPU timestamp counter (`RDTSC`) —
+explicitly documented and reported as **weak, non-cryptographic entropy**
+(the boot log prints a visible `WARNING` line in this case) rather than
+silently pretending to be secure.
+>>>>>>> origin/main
 
 ### `src/kernel/checksum.c` / `src/include/checksum.h` **(added)**
 
 RFC 1071 Internet checksum, split into `checksum_add()`/`checksum_finish()`
 so callers (UDP) can fold a pseudo-header, a protocol header, and a payload
 into one running sum before finishing it. **Verified** against the
+<<<<<<< HEAD
 well-known Wikipedia worked example for an IPv4 header (checksum `0xb861`).
+=======
+well-known Wikipedia worked example for an IPv4 header (checksum `0xb1e6`).
+>>>>>>> origin/main
 
 ### `src/kernel/secure_wipe.c` / `src/include/secure_wipe.h` **(added)**
 
@@ -558,6 +618,7 @@ A login/signup gate in front of the shell. On a blank disk (`users.dat`
 doesn't exist), runs a first-run wizard (username → password → confirm)
 that also generates the machine's cryptographic identity in the same flow.
 On subsequent boots, a normal login prompt. Passwords are never stored —
+<<<<<<< HEAD
 only a random 16-byte salt, an iteration count, and
 `PBKDF2-HMAC-SHA256(password, salt, iterations, 32)` per account (up to 4
 accounts; 600,000 iterations for new/re-hashed records), persisted to
@@ -567,6 +628,10 @@ new layout with a fresh salt on the next successful login. An unknown username
 runs a dummy PBKDF2 so timing does not reveal which users exist. Passwords
 must be 8+ characters. If `rng_is_seeded()` is false at signup, an entropy
 stage ("type random keys") runs before any salt or identity is generated. Password buffers
+=======
+only a random 16-byte salt and `PBKDF2-HMAC-SHA256(password, salt, 4096, 32)`
+per account (up to 4 accounts), persisted to `users.dat`. Password buffers
+>>>>>>> origin/main
 are wiped (`secure_wipe.c`) the instant they've been hashed or compared.
 Implements its own tiny append-only line editor (no cursor movement needed
 for a single-line prompt) driven through the three-way keyboard dispatch
@@ -652,7 +717,11 @@ which could overflow a fixed buffer written against the documented cap. (The
 other protocol layers were reviewed and already validate every length field
 against the actual received buffer.)
 
+<<<<<<< HEAD
 ### `src/kernel/rtl8139.c` / `src/include/rtl8139.h` **(added — verified under QEMU)**
+=======
+### `src/kernel/rtl8139.c` / `src/include/rtl8139.h` **(added — compiles/links only, never booted)**
+>>>>>>> origin/main
 
 A real driver for the RTL8139 Ethernet card (QEMU's traditional default NIC
 model), following the widely-documented programming sequence: PCI
@@ -663,9 +732,16 @@ well-known "off-by-16" quirk in the `CAPR` register that has to be accounted
 for when telling the card how much of the RX buffer has been consumed. Every
 wait loop here is bounded (a fixed maximum iteration count) rather than
 infinite, specifically so a wrong assumption about the hardware fails
+<<<<<<< HEAD
 closed — returning an error — instead of hanging the whole kernel. `make test-interactive`
 boots the kernel under QEMU's user-mode network and checks that `ping 10.0.2.2`
 completes an ARP resolution and ICMP echo round trip through this driver.
+=======
+closed — returning an error — instead of hanging the whole kernel. This file
+carries the project's clearest unverified-risk warning: there is no way to
+test real port I/O side effects without actual hardware or QEMU, neither of
+which was available while writing it.
+>>>>>>> origin/main
 
 ### `src/kernel/net.c` / `src/include/net.h` **(added)**
 
@@ -683,6 +759,7 @@ received frames per call, handing each to `eth_handle_frame()`.
 
 ### `Makefile` (original, **modified**)
 
+<<<<<<< HEAD
 Sources are discovered by wildcard (`src/kernel/*.c`, `src/shell/*.c`) and
 built by one pattern rule with `-MMD -MP` header dependencies; `boot.o` is
 linked first (it holds the Multiboot header). The crypto objects (`sha256`,
@@ -691,12 +768,20 @@ linked first (it holds the Multiboot header). The crypto objects (`sha256`,
 there, and packing it swept the previous ISO into the new one). Targets:
 `run`, `run-log`, `run-headless`, `test`, `fstest`, `unittest`,
 `test-interactive`, `check` (everything non-graphical), `clean`.
+=======
+Defines `KERNEL_OBJECTS` (every `.o` file to link) and per-file build rules,
+plus `iso` (via `grub-mkrescue`) and `run` (boots in QEMU with a display).
+**Added**: `run-headless` (same boot, no display, serial piped to stdout,
+wrapped in a 30-second `timeout` so a hang can't block CI forever) and
+`test` (runs `scripts/ci_boot_test.sh`).
+>>>>>>> origin/main
 
 ### `iso/boot/grub/grub.cfg` (original)
 
 A minimal GRUB configuration: one menu entry, zero timeout, loads
 `spectreos.bin` as a multiboot kernel.
 
+<<<<<<< HEAD
 ### `scripts/ci_boot_test.sh` **(added — verified)**
 
 Boots headless under QEMU with a timeout, captures the serial log, and greps
@@ -704,6 +789,24 @@ it for every subsystem's boot-time marker (`"ATA: OK"`, `"Filesystem: OK"`,
 ...), failing if any is missing or a `"KERNEL PANIC"` string appears. The RNG
 line accepts either the RDRAND or the entropy-pool message. It passes against
 the real kernel.
+=======
+### `scripts/ci_boot_test.sh` **(added — script logic verified, real boot never verified)**
+
+Boots headless under QEMU with a timeout, captures the serial log, and greps
+it against every subsystem's actual boot-time marker string (`"ATA: OK"`,
+`"Filesystem: OK"`, etc. — pulled directly from the literal strings in
+`kernel.c`, not guessed from memory), failing loudly if any marker is
+missing or if a `"KERNEL PANIC"` string appears anywhere in the log. Treats
+the RNG line specially (accepts either the hardware or the software-fallback
+variant, since which one appears is legitimately hardware-dependent, not a
+pass/fail signal). **Verified**: the script's own control-flow logic was
+tested by substituting a fake `qemu-system-i386` that emits a canned log
+instead of actually booting anything, run against four scenarios — a fully
+healthy log (passes), a log missing one marker (fails, names which one), a
+log containing a panic string (fails), and a completely empty log (fails
+with a specific diagnostic) — all four produced the correct exit code. What
+remains unverified is the thing being tested: an actual kernel boot.
+>>>>>>> origin/main
 
 ### `Dockerfile` **(added)**
 
@@ -722,6 +825,7 @@ Python's PyYAML) otherwise interpret the bare word `on` as the boolean
 `true`, which is harmless for GitHub Actions' own parser but was removed
 as a needless ambiguity.
 
+<<<<<<< HEAD
 ### `tests/crypto/` and `make unittest` **(added - no QEMU)**
 
 `test_crypto.c` compiles the real `sha256.c`, `hmac_sha256.c`, `pbkdf2.c`,
@@ -754,6 +858,8 @@ collection, account/identity creation, shell file commands, `netinfo` and a
 real `ping 10.0.2.2`, `crypttest`, `selftest`, then a second boot on the same
 disk for wrong-user, wrong-password and correct login and data persistence.
 
+=======
+>>>>>>> origin/main
 ### `tests/fs_harness/` and `make fstest` **(added - runnable without QEMU)**
 Builds the real `src/kernel/fs.c`, plus a *frozen copy of the pre-encryption
 one* (`legacy/fs.c`, a fixture - do not "fix" it), as ordinary userspace
@@ -790,12 +896,20 @@ at `src/`) — effectively inert reference material, not live code.
 - **Fully independently verified**: every cryptographic primitive and the
   Internet checksum (Section 12), plus the memory-copy speedup (also
   Section 12) and the CI test script's own logic (Section 16).
+<<<<<<< HEAD
 - **Booted and tested end to end**: `make check` runs the host unit tests,
   the filesystem harness, the headless boot test, and a keyboard-driven QEMU
   session including real network traffic.
 - **Known, documented gaps** (see `SECURITY.md`): disk key stored beside the
   data, CTR keystream reuse, no ring-3 userspace or per-process address
   spaces, no per-user file permissions, symmetric-only identity.
+=======
+- **Compiles and links cleanly, but never actually booted**: the entire
+  project, as a whole — no `nasm`/`qemu`/network access existed in the
+  environment this was built in. `scripts/ci_boot_test.sh` and the GitHub
+  Actions workflow are what turn that from a permanent caveat into a
+  one-time gap, the first time someone with real hardware runs them.
+>>>>>>> origin/main
 
 ## SpectreOS Architecture
 

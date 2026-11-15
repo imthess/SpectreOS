@@ -14,6 +14,7 @@ void rng_init(void);
  */
 int rng_hardware_available(void);
 
+<<<<<<< HEAD
 /*
  * Folds an event into the entropy pool (e.g. keystroke scancode).
  * Cheap enough to call from an interrupt handler. Credits a small
@@ -33,6 +34,8 @@ int rng_is_seeded(void);
 uint32_t rng_entropy_bits(void);
 uint32_t rng_seed_threshold_bits(void);
 
+=======
+>>>>>>> origin/main
 void rng_get_bytes(
     uint8_t* buffer,
     uint32_t length

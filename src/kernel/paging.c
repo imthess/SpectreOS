@@ -27,8 +27,13 @@ static uint32_t first_page_table[1024]
 /*
  * Page flags.
  */
+<<<<<<< HEAD
 #define PAGE_PRESENT  PAGING_PRESENT
 #define PAGE_WRITE    PAGING_WRITE
+=======
+#define PAGE_PRESENT  0x001
+#define PAGE_WRITE    0x002
+>>>>>>> origin/main
 
 
 void paging_init(void)
@@ -141,6 +146,7 @@ uint32_t paging_get_directory(void)
 {
     return (uint32_t)page_directory;
 }
+<<<<<<< HEAD
 
 
 uint32_t paging_page_flags(uint32_t address)
@@ -209,3 +215,5 @@ int paging_range_ok(
 
     return 1;
 }
+=======
+>>>>>>> origin/main

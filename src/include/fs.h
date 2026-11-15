@@ -11,12 +11,20 @@
 #define FS_DIRECT_BLOCKS      32
 #define FS_MAX_FILE_SIZE      (FS_DIRECT_BLOCKS * 512)
 #define FS_INODE_SIZE         256
+<<<<<<< HEAD
+=======
+#define FS_INODE_SIZE         256
+>>>>>>> origin/main
 
 #define FS_SUPERBLOCK_SECTOR  0
 #define FS_BITMAP_START       1
 #define FS_BITMAP_SECTORS      32
 #define FS_INODE_START        33
 #define FS_INODE_SECTORS      64
+<<<<<<< HEAD
+=======
+#define FS_INODE_SIZE        256
+>>>>>>> origin/main
 #define FS_DATA_START          97
 
 #define FS_MODE_FREE          0
@@ -52,6 +60,10 @@ typedef struct
     uint32_t reserved[8];
 
 } fs_inode_t;
+<<<<<<< HEAD
+=======
+#define FS_INODE_SIZE 256
+>>>>>>> origin/main
 
 typedef struct
 {
