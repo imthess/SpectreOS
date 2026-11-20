@@ -31,13 +31,8 @@ make run
 
 At minimum:
 
-<<<<<<< HEAD
 1. Build the project from a clean tree (`make clean && make`); the build is expected to produce zero warnings.
 2. Run `make check` (unit tests, filesystem harness, headless boot, keyboard-driven QEMU session).
-=======
-1. Build the project from a clean tree.
-2. Boot the resulting image in QEMU when the change affects runtime behavior.
->>>>>>> origin/main
 3. Exercise the affected shell command, driver, or kernel subsystem.
 4. Check the build output for new warnings.
 5. Keep generated build artifacts out of commits unless they are intentionally part of a release.
@@ -89,11 +84,7 @@ A useful pull request should include:
 - a short summary;
 - why the change is needed;
 - affected files/subsystems;
-<<<<<<< HEAD
 - how it was tested (`make check` must pass; add a test for new behavior: `tests/crypto`, `tests/auth_harness`, `src/kernel/selftest.c`, or `tests/interactive`);
-=======
-- how it was tested;
->>>>>>> origin/main
 - known limitations or follow-up work.
 
 ## Documentation
@@ -102,10 +93,6 @@ When behavior changes, update the relevant documentation in the same change wher
 
 - `README.md` for user-facing project status and usage;
 - `ARCHITECTURE.md` for subsystem design;
-<<<<<<< HEAD
-=======
-- `ROADMAP.md` for milestone status;
->>>>>>> origin/main
 - `SECURITY.md` for security assumptions and limitations.
 
 ## License

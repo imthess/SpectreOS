@@ -12,17 +12,11 @@ Status tags used below:
 - **(modified)** — an original file that was later changed.
 - **verified** — checked against an independent reference (test vectors, a
   second library, or randomized comparison against libc) before being trusted.
-<<<<<<< HEAD
 - **booted** — the kernel has been booted in QEMU and driven through the PS/2
   keyboard by `make test-interactive`. Tags of the form "compiles/links only"
   that appeared in earlier revisions of this document are obsolete: the whole
   kernel, including the RTL8139 driver (real ARP + ICMP round trip to the
   QEMU gateway), now runs under test.
-=======
-- **compiles/links only, never booted** — the honest limit of what could be
-  checked in the environment this was built in: no `nasm`, `qemu`, or network
-  access were available, so nothing here has ever actually run.
->>>>>>> origin/main
 
 ---
 
@@ -49,7 +43,7 @@ for. The current boot order is:
 4. `gdt_init()`, `idt_init()`, `pic_remap()`, interrupts enabled groundwork.
 5. `memory_init()`, `pmm_init()`, `paging_init()` — memory subsystems, in that
    order specifically because `paging_init()` unmaps page 0 (the NULL guard),
-   and both memory functions dereference the Multiboot info pointer *before*
+   and both memory functions dereference the Multiboot info pointer _before_
    paging changes take effect.
 6. `pci_scan_bus()`, then `net_init()` (networking needs the PCI scan to find
    an RTL8139 card).
@@ -81,7 +75,7 @@ for. The current boot order is:
 Sets up the Global Descriptor Table: 5 entries — a mandatory null descriptor,
 then kernel code/data segments (ring 0) and user code/data segments (ring 3).
 The ring-3 segments (`0xFA`/`0xF2` access bytes) exist and are correctly
-flagged, but nothing in the codebase currently *uses* them — no code ever
+flagged, but nothing in the codebase currently _uses_ them — no code ever
 actually switches to ring 3. This is real, correct plumbing for a future
 user-mode implementation, not yet a working feature.
 
@@ -105,7 +99,7 @@ interrupts). This is the exact stack layout that `registers_t` (in
 `interrupts.h`) is designed to overlay — the struct's field order matches
 `pusha`'s push order precisely.
 
-### `src/kernel/interrupts.c` / `src/include/interrupts.h` (original, **modified**)
+### `src/kernel/interrupts.c` / `src/include/interrupts.h` (original, modified)
 
 Two things live here:
 
@@ -119,7 +113,7 @@ Two things live here:
   (the faulting address), and dump every register to a full-screen VGA panic
   display. It also mirrors everything to the serial console (`serial.c`)
   through its own `panic_put_string`/`panic_put_hex32` helpers — deliberately
-  *not* through `terminal_putchar()`'s mirroring, so the panic screen keeps
+  _not_ through `terminal_putchar()`'s mirroring, so the panic screen keeps
   working even if something about the rest of the kernel's state is corrupted.
 
 ### `src/kernel/pic.c` / `src/include/pic.h` (original)
@@ -148,7 +142,7 @@ ticks, not wall-clock time.
 ### `src/kernel/pmm.c` / `src/include/pmm.h` (original)
 
 The Physical Memory Manager. Maintains a bitmap (one bit per 4 KiB frame) of
-which physical frames are free or used. On init, it starts by marking *every*
+which physical frames are free or used. On init, it starts by marking _every_
 frame as used (safer default), then walks the Multiboot memory map to release
 whichever ranges the bootloader reports as actually available RAM, then
 re-reserves the first 1 MiB (BIOS/bootloader territory) and the kernel's own
@@ -169,11 +163,11 @@ caught by the hardened panic handler above (which prints the faulting
 address from `CR2`). Confirmed safe to unmap by checking that nothing in the
 codebase reads/writes low physical addresses, and that the only code that
 dereferences the Multiboot info pointer (`memory_init()`, `pmm_init()`) runs
-*before* paging is enabled.
+_before_ paging is enabled.
 
 ### `src/kernel/memory.c` / `src/include/memory.h` (original)
 
-Distinct from `pmm.c` — this is memory *detection and reporting*, not
+Distinct from `pmm.c` — this is memory _detection and reporting_, not
 allocation. Reads `mem_lower`/`mem_upper` straight from the Multiboot info
 structure and computes total RAM for the `meminfo` shell command and the
 `SYS_MEMINFO` syscall. Doesn't allocate anything itself.
@@ -191,7 +185,7 @@ its own small local `cpuid()` inline-asm helper, following this file's
 pattern rather than sharing one — a deliberate low-coupling choice throughout
 the project).
 
-### `src/kernel/pci.c` / `src/include/pci.h` **(added)**
+### `src/kernel/pci.c` / `src/include/pci.h` (added)
 
 Real PCI bus enumeration via the legacy `0xCF8`/`0xCFC` configuration-space
 I/O ports. `pci_scan_bus()` walks every bus/device/function (256 × 32 × 8,
@@ -208,19 +202,19 @@ accidentally clear a pending status flag.
 
 ## 6. Concurrency
 
-### `src/kernel/thread.c` / `src/include/thread.h` (original, **modified**)
+### `src/kernel/thread.c` / `src/include/thread.h` (original, modified)
 
 Kernel-thread bookkeeping: a fixed-size thread table, states
 (`READY`/`RUNNING`/`TERMINATED`/etc.), stack allocation, and
 `build_initial_stack()` — hand-constructs a fake interrupt-stack-frame for a
-brand-new thread so that the *first* time the scheduler "resumes" it, the
+brand-new thread so that the _first_ time the scheduler "resumes" it, the
 `popa; add esp,8; iretd` epilogue in `interrupts.asm` lands correctly on the
 thread's real entry point. **Modification**: the header's include guard
 (`#endif`) was misplaced, leaving `thread_wake()`/`thread_wake_one()`
 declared outside it — harmless in practice (repeated prototypes are legal in
 C) but fixed for correctness.
 
-### `src/kernel/scheduler.c` / `src/include/scheduler.h` (original, **modified — real bug fix**)
+### `src/kernel/scheduler.c` / `src/include/scheduler.h` (original, modified — real bug fix)
 
 Round-robin (with FCFS/priority variants available) thread scheduling, called
 from the timer IRQ path. **The bug**: this file used to keep its own private
@@ -244,8 +238,9 @@ instruction) and mutexes built on top of them. Straightforward, standard
 single-core synchronization primitives — not exercised much yet since there's
 no real concurrent workload driving contention.
 
-### `src/kernel/process.c` / `src/include/process.h` **(added - live-tested)**
-A deliberately *thin* process abstraction over `thread.c`: a PID, a PPID, a
+### `src/kernel/process.c` / `src/include/process.h` (added - live-tested)
+
+A deliberately _thin_ process abstraction over `thread.c`: a PID, a PPID, a
 small file-descriptor bookkeeping array, and the underlying thread's table
 index. It is not the full roadmap `process_t` - no page directory, no user
 stack, no ring-3 entry; every process still runs in ring 0 in the single
@@ -254,14 +249,14 @@ always derived live from `thread_get_state()` - specifically so it cannot
 drift out of sync with the thread table the way `scheduler.c` once did.
 All processes start at one shared `process_trampoline()` that looks itself up
 by `thread_get_current_index()`, runs the caller's real entry function, and -
-if that function *returns* normally rather than calling `thread_exit()`
+if that function _returns_ normally rather than calling `thread_exit()`
 itself - closes every fd it registered (`process_register_fd()`) before
 terminating. fd tracking is bookkeeping, not isolation: `fs.c`'s handle table
 is still global to the kernel. **Live result**: `threadtest` / `processtest`
 showed genuinely interleaved output from two concurrent threads/processes,
 `threads` reporting `switches` of 26-28 per thread, and `proctest_a.dat`
 persisting after process A's automatic cleanup ran. Also confirmed in
-testing: shell commands run *inside* the keyboard interrupt handler with
+testing: shell commands run _inside_ the keyboard interrupt handler with
 interrupts disabled, so a command that waits on `pit_get_ticks()` hangs
 forever (this froze `ping` once) - any waiting a shell command does must be a
 bounded iteration count, never timer-based.
@@ -270,9 +265,8 @@ bounded iteration count, never timer-based.
 
 ## 7. Syscalls
 
-### `src/kernel/syscall.c` / `src/include/syscall.h` (original, **modified**)
+### `src/kernel/syscall.c` / `src/include/syscall.h` (original, modified)
 
-<<<<<<< HEAD
 The `INT 0x80` handler: a switch dispatching on a syscall number to
 `hardware_get_cpu_info()`, `memory_get_info()`, VGA text output, or the
 filesystem functions. **Argument validation** is backed by the live page
@@ -289,47 +283,32 @@ success and 0 on failure. **Limits**: single shared address space, no page has
 the user bit yet, and data buffers are read in place after the check (no
 copy-in), which is sound only while there is no preemptible userspace. Tested
 by `selftest` (including fabricated ring-0 and ring-3 frames).
-=======
-The `INT 0x80` handler: a big switch statement dispatching on a syscall
-number to `hardware_get_cpu_info()`, `memory_get_info()`, VGA text output, or
-the filesystem functions (`fs_open`/`fs_read`/`fs_write`/etc.). **Modification
-(hardening)**: previously, several handlers had inconsistent or missing
-`NULL` checks, and `syscall_write()` walked a caller-supplied string with no
-length limit at all — a bad or non-terminated pointer could read forever.
-Now: every pointer-taking syscall rejects `NULL` *and* near-NULL addresses
-(below `0x1000`, backed up by the real page-0 hardware guard in `paging.c`);
-`syscall_write()` is capped at 4096 bytes; every file-I/O syscall caps its
-size argument at 65536 bytes before it ever reaches `fs.c`. Explicitly scoped
-to what's meaningful in a single-address-space kernel — this is *not*
-per-process pointer validation (there are no per-process address spaces to
-validate against yet).
->>>>>>> origin/main
 
 ---
 
 ## 8. I/O Drivers
 
-### `src/kernel/terminal.c` / `src/include/terminal.h` (original, **modified**)
+### `src/kernel/terminal.c` / `src/include/terminal.h` (original, modified)
 
 Direct VGA text-mode framebuffer writes (`0xB8000`), cursor tracking, and
 scrolling. **Modification**: `terminal_putchar()` — the one function every
 other output path funnels through — now also mirrors each character to
 `serial_putchar()`. This single change point means every existing
-`terminal_write()` call site across the *entire* codebase (boot messages,
+`terminal_write()` call site across the _entire_ codebase (boot messages,
 shell output, everything) automatically reaches the serial console too,
 without needing to touch dozens of call sites individually.
 
-### `src/kernel/keyboard.c` / `src/include/keyboard.h` (original, **modified**)
+### `src/kernel/keyboard.c` / `src/include/keyboard.h` (original, modified)
 
 PS/2 keyboard scancode-to-ASCII translation and a small dispatch layer.
 **Modification**: originally a two-way dispatch (nano editor active, or
-shell). Now three-way: `auth_login_active()` is checked *first*, routing
+shell). Now three-way: `auth_login_active()` is checked _first_, routing
 keystrokes to `auth.c`'s login/signup handlers while a session isn't
 authenticated yet, falling through to nano or the shell only once it's not.
 Arrow keys/Home/End/Delete are simply ignored during login (the login line
 editor only supports character entry, backspace, and enter).
 
-### `src/kernel/serial.c` / `src/include/serial.h` **(added)**
+### `src/kernel/serial.c` / `src/include/serial.h` (added)
 
 A standard 16550 UART driver for COM1 (`0x3F8`). Runs a loopback self-test at
 init (switch the UART to loopback mode, write a known byte, confirm it reads
@@ -339,7 +318,7 @@ listening on. Exists specifically so an automated test harness (QEMU with
 `-serial stdio`, no display) can observe full boot progress and panics
 without screen-scraping VGA memory.
 
-### `src/kernel/ata.c` / `src/include/ata.h` (original, **modified**)
+### `src/kernel/ata.c` / `src/include/ata.h` (original, modified)
 
 PIO-mode ATA disk driver: identifies the drive, reads/writes 512-byte sectors
 via `rep insw`/`rep outsw` (already word-at-a-time, efficient — never needed
@@ -360,7 +339,7 @@ original file (966 lines) aside from the shell itself.
 
 ## 9. Block Device Layer
 
-### `src/kernel/blockdev.c` / `src/include/blockdev.h` **(added)**
+### `src/kernel/blockdev.c` / `src/include/blockdev.h` (added)
 
 A small device-registry abstraction — any storage backend (ATA, RAM disk,
 the AES-encrypted disk) implements four function pointers
@@ -374,7 +353,7 @@ interfaces (`nic.h`) and encrypted disks (`crypto_disk.c`'s fixed slots).
 fixed id, and `BLOCKDEV_MAX` is 8 (it was 4, which an encrypted filesystem
 would have filled exactly: `ata0`, `ram0`, `cenc0`, `fsenc0`).
 
-### `src/kernel/ramdisk.c` / `src/include/ramdisk.h` **(added)**
+### `src/kernel/ramdisk.c` / `src/include/ramdisk.h` (added)
 
 An in-memory 256 KiB (512-sector) block device, registering into
 `blockdev.h` as a second, independent backend — proof that the abstraction
@@ -386,7 +365,7 @@ self-test that runs on every boot (nothing here risks corrupting real data).
 
 ## 10. Filesystem
 
-### `src/kernel/fs.c` / `src/include/fs.h` (original, **modified**)
+### `src/kernel/fs.c` / `src/include/fs.h` (original, modified)
 
 A custom flat-namespace filesystem: a superblock, a free-space bitmap, a
 fixed-size inode table, and up to 16 simultaneously open file handles. Files
@@ -401,7 +380,7 @@ Their bodies now delegate to `fast_mem.c`'s word-aligned implementation; the
 function names, signatures, and every call site are completely unchanged, so
 this was a zero-risk drop-in speedup.
 
-**At-rest encryption (added later)**: a freshly *formatted* disk is now
+**At-rest encryption (added later)**: a freshly _formatted_ disk is now
 encrypted with AES-256-CTR via `crypto_disk.c`; the superblock (sector 0) is
 always plaintext and holds an `SENC` flag, a 16-byte random seed (key =
 `SHA-256("SPECTREOS-FSKEY" || seed)`), and an 8-byte random nonce in its
@@ -418,15 +397,14 @@ the disk's life, plain CTR reuses a sector's keystream on every rewrite, so
 two snapshots of the image taken at different times reveal the XOR of any
 changed sector's old and new plaintext. A password-derived key (and a mode
 without that weakness) is future work, blocked on reordering boot so the
-filesystem mounts *after* login - `auth.c` currently needs `fs.c` to check a
+filesystem mounts _after_ login - `auth.c` currently needs `fs.c` to check a
 password at all.
 
 ---
 
 ## 11. Shell & Interactive Layer
 
-<<<<<<< HEAD
-### `src/shell/` and `src/include/shell.h`, `shell_internal.h` (original, heavily **modified**)
+### `src/shell/` and `src/include/shell.h`, `shell_internal.h` (original, heavily modified)
 
 The command-line interface, split by responsibility:
 
@@ -442,19 +420,6 @@ The command-line interface, split by responsibility:
 `shell_internal.h` is the private interface between these files. Also:
 `selftest` (runs `selftest.c`: paging, syscall validation, RNG, sync) and
 `ps`, `threads`, `syscall`, `help`, `clear`, `echo`.
-=======
-### `src/shell/shell.c` / `src/include/shell.h` (original, heavily **modified**)
-
-The command-line interface: line editing (cursor movement, history,
-backspace/delete), a large dispatch chain matching typed commands to
-handler functions, and the prompt/redraw logic. Original commands: `help`,
-`clear`, `ls`, `cat`, `touch`, `rm`, `write`, `cp`, `mv`, `echo`, `meminfo`,
-`hwinfo`, `nano`, plus debug commands (`mem`, `ticks`, `threads`, `syscall`).
-**Added across this project's development**: `pci`, `disks`, `crypttest`,
-`whoami`, `logout`, `netinfo`, `ping <ip>`. Also holds small shared string
-helpers (`string_equals`, `string_starts_with`) that several of the newer
-modules reuse rather than duplicate.
->>>>>>> origin/main
 
 ---
 
@@ -463,42 +428,36 @@ modules reuse rather than duplicate.
 Every file in this section was checked against an independent reference
 before being trusted anywhere else in the codebase.
 
-### `src/kernel/sha256.c` / `src/include/sha256.h` **(added)**
+### `src/kernel/sha256.c` / `src/include/sha256.h` (added)
 
 FIPS 180-4 SHA-256, self-contained (no libc). **Verified** against Python's
 `hashlib` across 4 vectors: the empty string, `"abc"`, a 56-byte multi-block
 message, and 1,000,000 `'a'` characters (exercising the multi-block/streaming
 path) — byte-for-byte exact matches.
 
-### `src/kernel/hmac_sha256.c` / `src/include/hmac_sha256.h` **(added)**
+### `src/kernel/hmac_sha256.c` / `src/include/hmac_sha256.h` (added)
 
 RFC 2104 HMAC instantiated with SHA-256. **Verified** against both RFC 4231
 official test cases. Wipes its internal key-block buffer through a
 `volatile` pointer before returning.
 
-### `src/kernel/pbkdf2.c` / `src/include/pbkdf2.h` **(added)**
+### `src/kernel/pbkdf2.c` / `src/include/pbkdf2.h` (added)
 
 RFC 8018 PBKDF2-HMAC-SHA256 — used to turn a login password into a stored
 verifier (`auth.c`) and, separately, into an AES key (`crypto_disk.c`).
-<<<<<<< HEAD
 **Verified** by `tests/crypto` against Python's `hashlib.pbkdf2_hmac` across 6
 vectors (1, 2, 3, 10 and 4096 iterations; output lengths 20, 32, 45, 64
 including non-block-multiples; empty and long inputs). Compiled with `-O2`
 (see `CRYPTO_CFLAGS` in the Makefile) because `auth.c` runs 600,000 iterations
 per login.
-=======
-**Verified** against Python's `hashlib.pbkdf2_hmac` across 3 vectors (1
-iteration, 4096 iterations, and a long password/salt pair) — exact matches.
->>>>>>> origin/main
 
-### `src/kernel/aes256.c` / `src/include/aes256.h` **(added)**
+### `src/kernel/aes256.c` / `src/include/aes256.h` (added)
 
 AES-256, **forward cipher only** — deliberately no decrypt transform, because
 the only use site (`crypto_disk.c`) runs AES in CTR mode, where both
 encryption and decryption of the actual data are done by encrypting a
 counter and XORing; the decrypt half of the AES algorithm itself is never
 needed. Halves the amount of security-critical code that has to be correct.
-<<<<<<< HEAD
 The S-box is **computed, not looked up**: multiplicative inverse in GF(2^8)
 via `x^254`, then the affine transform, with branch-free `xtime`/`gmul`. No
 secret-dependent branch or table index remains (constant-time at the C
@@ -507,45 +466,27 @@ level; audit the object file if a hostile local observer matters).
 key/plaintext pairs against OpenSSL, and all 256 computed S-box values against
 the FIPS-197 table (kept only as a test oracle in `tests/crypto/sbox_ref.h`).
 
-### `src/kernel/rng.c` / `src/include/rng.h` **(added)**
+### `src/kernel/rng.c` / `src/include/rng.h` (added)
 
 A SHA-256 pool plus hash-counter generator. Keyboard interrupts call
 `rng_add_entropy()` with the scancode and TSC; the pool is updated as
 `SHA-256("mix" || pool || sample || tsc || gap)`. One bit is credited per
 event, and only if the inter-event gap differs from the previous gap; the pool
-is *seeded* at 256 credited bits, or immediately if `RDRAND` exists
-(`CPUID.1:ECX.30`, retried up to 16 times). Output block *i* is
+is _seeded_ at 256 credited bits, or immediately if `RDRAND` exists
+(`CPUID.1:ECX.30`, retried up to 16 times). Output block _i_ is
 `SHA-256("out" || pool || counter)`; RDRAND words, when present, are XORed in;
 the pool is ratcheted forward after every request so a later pool compromise
 does not reveal earlier output. `rng_is_seeded()` gates key creation:
 `auth.c` collects keystrokes at signup until it returns 1. The credit figure
 is a deliberately stingy heuristic, not a measurement; jitter under an
 emulator depends on the host.
-=======
-**Verified** against the official FIPS-197 Appendix C.3 test vector, then
-independently cross-checked against Python's `cryptography` library.
 
-### `src/kernel/rng.c` / `src/include/rng.h` **(added)**
-
-Entropy source: prefers the hardware `RDRAND` instruction (detected via
-`CPUID.1:ECX.30`), retrying up to 16 times per call since `RDRAND` can
-transiently fail under contention. Falls back, if `RDRAND` isn't available,
-to an `xorshift32` PRNG reseeded from the CPU timestamp counter (`RDTSC`) —
-explicitly documented and reported as **weak, non-cryptographic entropy**
-(the boot log prints a visible `WARNING` line in this case) rather than
-silently pretending to be secure.
->>>>>>> origin/main
-
-### `src/kernel/checksum.c` / `src/include/checksum.h` **(added)**
+### `src/kernel/checksum.c` / `src/include/checksum.h` (added)
 
 RFC 1071 Internet checksum, split into `checksum_add()`/`checksum_finish()`
 so callers (UDP) can fold a pseudo-header, a protocol header, and a payload
 into one running sum before finishing it. **Verified** against the
-<<<<<<< HEAD
 well-known Wikipedia worked example for an IPv4 header (checksum `0xb861`).
-=======
-well-known Wikipedia worked example for an IPv4 header (checksum `0xb1e6`).
->>>>>>> origin/main
 
 ### `src/kernel/secure_wipe.c` / `src/include/secure_wipe.h` **(added)**
 
@@ -555,7 +496,7 @@ buffer goes out of scope is legal for a compiler to delete entirely). Used
 everywhere a password, key, or other secret needs to leave memory —
 `auth.c`, `identity.c`, `hmac_sha256.c`, `crypto_disk.c`.
 
-### `src/kernel/fast_mem.c` / `src/include/fast_mem.h` **(added)**
+### `src/kernel/fast_mem.c` / `src/include/fast_mem.h` (added)
 
 Word-aligned `memcpy`/`memset` replacements. Copies 4 bytes at a time when
 source and destination share the same alignment relative to a 4-byte
@@ -569,7 +510,7 @@ Wired into `fs.c` (12 call sites) and `ramdisk.c`.
 
 ## 13. Privacy Layer
 
-### `src/kernel/crypto_disk.c` / `src/include/crypto_disk.h` **(added)**
+### `src/kernel/crypto_disk.c` / `src/include/crypto_disk.h` (added)
 
 Transparent AES-256-CTR disk encryption, wrapping an existing block device
 (from `blockdev.h`) with a second one that encrypts/decrypts every sector
@@ -578,7 +519,7 @@ on the fly. The counter for each 16-byte AES block is
 at creation time) — meaning no two 16-byte blocks on a given encrypted disk
 ever reuse the same keystream, which is the one property CTR mode absolutely
 depends on. `crypto_disk_self_test()` writes a known pattern through the
-encrypted view, reads it back (must match), and separately reads the *raw*
+encrypted view, reads it back (must match), and separately reads the _raw_
 backing-device bytes (must **not** match the plaintext) — proving real
 encryption is happening, not a pass-through. Because `blockdev.h`'s function
 pointers carry no per-device context parameter, this supports a small fixed
@@ -598,27 +539,26 @@ boot (`cenc0` self-test, `fsenc0` filesystem).
 
 ## 14. Identity & Authentication
 
-### `src/kernel/identity.c` / `src/include/identity.h` **(added)**
+### `src/kernel/identity.c` / `src/include/identity.h` (added)
 
 A **hash-based** identity, not an asymmetric keypair — worth being precise
 about, since it's the one place in the project where the honest scope is
 easy to misread. At generation time, a random 32-byte seed is drawn from
 `rng.c`, and the public fingerprint is
 `SHA256(seed || "SPECTREOS-ID" || username)`. `identity_prove()` gives
-HMAC-SHA256-based proof of possessing the seed — a *symmetric* proof, useful
+HMAC-SHA256-based proof of possessing the seed — a _symmetric_ proof, useful
 locally, but not the "anyone can verify without sharing a secret" property
 real peer-to-peer identity verification eventually needs (that would require
 an actual elliptic-curve keypair — e.g. X25519 — which does not exist here
 yet). Persisted to disk as `identity.dat` via `fs.c`; only one identity is
 currently supported per machine, tied to the first account created.
 
-### `src/kernel/auth.c` / `src/include/auth.h` **(added)**
+### `src/kernel/auth.c` / `src/include/auth.h` (added)
 
 A login/signup gate in front of the shell. On a blank disk (`users.dat`
 doesn't exist), runs a first-run wizard (username → password → confirm)
 that also generates the machine's cryptographic identity in the same flow.
 On subsequent boots, a normal login prompt. Passwords are never stored —
-<<<<<<< HEAD
 only a random 16-byte salt, an iteration count, and
 `PBKDF2-HMAC-SHA256(password, salt, iterations, 32)` per account (up to 4
 accounts; 600,000 iterations for new/re-hashed records), persisted to
@@ -628,10 +568,6 @@ new layout with a fresh salt on the next successful login. An unknown username
 runs a dummy PBKDF2 so timing does not reveal which users exist. Passwords
 must be 8+ characters. If `rng_is_seeded()` is false at signup, an entropy
 stage ("type random keys") runs before any salt or identity is generated. Password buffers
-=======
-only a random 16-byte salt and `PBKDF2-HMAC-SHA256(password, salt, 4096, 32)`
-per account (up to 4 accounts), persisted to `users.dat`. Password buffers
->>>>>>> origin/main
 are wiped (`secure_wipe.c`) the instant they've been hashed or compared.
 Implements its own tiny append-only line editor (no cursor movement needed
 for a single-line prompt) driven through the three-way keyboard dispatch
@@ -641,7 +577,7 @@ described under `keyboard.c` above.
 
 ## 15. Networking
 
-### `src/include/net_byteorder.h` **(added)**
+### `src/include/net_byteorder.h` (added)
 
 Header-only big-endian field helpers (`net_read16`/`net_write16`/
 `net_read32`/`net_write32`) used throughout the network stack so every
@@ -649,7 +585,7 @@ protocol header is built/parsed byte-by-byte rather than relying on struct
 packing and the CPU's native endianness happening to line up with network
 byte order.
 
-### `src/kernel/nic.c` / `src/include/nic.h` **(added)**
+### `src/kernel/nic.c` / `src/include/nic.h` (added)
 
 The same registration-abstraction pattern as `blockdev.h`, this time for
 network interfaces: a driver provides `send`/`poll_receive` function
@@ -659,26 +595,26 @@ a second hardware-interaction surface on top of the NIC programming itself;
 `net_poll()` (see `net.c`) must be called periodically instead, which
 `kernel.c`'s main idle loop does on every wake from `hlt`.
 
-### `src/kernel/net_config.c` / `src/include/net_config.h` **(added)**
+### `src/kernel/net_config.c` / `src/include/net_config.h` (added)
 
 Shared state — this machine's local IP, subnet mask, gateway IP, and a
 `net_get_local_mac()` accessor — factored out specifically to avoid a
 circular dependency (the protocol layers need this; `net.c`'s higher-level
 init/poll logic depends on all of the protocol layers).
 
-### `src/kernel/ethernet.c` / `src/include/ethernet.h` **(added)**
+### `src/kernel/ethernet.c` / `src/include/ethernet.h` (added)
 
 Builds and parses 14-byte Ethernet headers, pads short frames to the minimum
 60 bytes, and dispatches received frames to `arp.c` or `ip.c` by EtherType.
 
-### `src/kernel/arp.c` / `src/include/arp.h` **(added)**
+### `src/kernel/arp.c` / `src/include/arp.h` (added)
 
 Address Resolution Protocol: sends broadcast requests, replies to requests
 for our own IP, and maintains a small fixed-size (8-entry) IP→MAC cache,
-learning from *any* ARP traffic seen (request or reply) rather than only
+learning from _any_ ARP traffic seen (request or reply) rather than only
 from replies to our own requests — standard behavior that saves round trips.
 
-### `src/kernel/ip.c` / `src/include/ip.h` **(added)**
+### `src/kernel/ip.c` / `src/include/ip.h` (added)
 
 IPv4: builds/parses 20-byte headers (no options support), verifies the
 header checksum on receipt (a correct header always folds to exactly zero
@@ -690,7 +626,7 @@ silent bug. Routing is a simple same-subnet-or-gateway decision
 ARP request is sent automatically and the send returns "not yet" for the
 caller to retry after `net_poll()` has run.
 
-### `src/kernel/icmp.c` / `src/include/icmp.h` **(added)**
+### `src/kernel/icmp.c` / `src/include/icmp.h` (added)
 
 ICMP echo request/reply. Replies automatically to incoming echo requests;
 `icmp_send_echo_request()` + `icmp_reply_received()` together back the
@@ -698,7 +634,7 @@ ICMP echo request/reply. Replies automatically to incoming echo requests;
 request (sufficient for an interactive ping command, not a general-purpose
 multi-request ICMP API).
 
-### `src/kernel/udp.c` / `src/include/udp.h` **(added)**
+### `src/kernel/udp.c` / `src/include/udp.h` (added)
 
 UDP with correct RFC 768 pseudo-header checksums (source IP, dest IP, zero
 byte, protocol number, and UDP length all folded in before the packet
@@ -717,11 +653,7 @@ which could overflow a fixed buffer written against the documented cap. (The
 other protocol layers were reviewed and already validate every length field
 against the actual received buffer.)
 
-<<<<<<< HEAD
-### `src/kernel/rtl8139.c` / `src/include/rtl8139.h` **(added — verified under QEMU)**
-=======
-### `src/kernel/rtl8139.c` / `src/include/rtl8139.h` **(added — compiles/links only, never booted)**
->>>>>>> origin/main
+### `src/kernel/rtl8139.c` / `src/include/rtl8139.h` (added — verified under QEMU)
 
 A real driver for the RTL8139 Ethernet card (QEMU's traditional default NIC
 model), following the widely-documented programming sequence: PCI
@@ -732,18 +664,11 @@ well-known "off-by-16" quirk in the `CAPR` register that has to be accounted
 for when telling the card how much of the RX buffer has been consumed. Every
 wait loop here is bounded (a fixed maximum iteration count) rather than
 infinite, specifically so a wrong assumption about the hardware fails
-<<<<<<< HEAD
 closed — returning an error — instead of hanging the whole kernel. `make test-interactive`
 boots the kernel under QEMU's user-mode network and checks that `ping 10.0.2.2`
 completes an ARP resolution and ICMP echo round trip through this driver.
-=======
-closed — returning an error — instead of hanging the whole kernel. This file
-carries the project's clearest unverified-risk warning: there is no way to
-test real port I/O side effects without actual hardware or QEMU, neither of
-which was available while writing it.
->>>>>>> origin/main
 
-### `src/kernel/net.c` / `src/include/net.h` **(added)**
+### `src/kernel/net.c` / `src/include/net.h` (added)
 
 Top-level glue: `net_init()` brings up every layer above in dependency
 order and then the RTL8139 driver; if a NIC was found, hardcodes network
@@ -757,9 +682,8 @@ received frames per call, handing each to `eth_handle_frame()`.
 
 ## 16. Build, Packaging & CI
 
-### `Makefile` (original, **modified**)
+### `Makefile` (original, modified)
 
-<<<<<<< HEAD
 Sources are discovered by wildcard (`src/kernel/*.c`, `src/shell/*.c`) and
 built by one pattern rule with `-MMD -MP` header dependencies; `boot.o` is
 linked first (it holds the Multiboot header). The crypto objects (`sha256`,
@@ -768,47 +692,21 @@ linked first (it holds the Multiboot header). The crypto objects (`sha256`,
 there, and packing it swept the previous ISO into the new one). Targets:
 `run`, `run-log`, `run-headless`, `test`, `fstest`, `unittest`,
 `test-interactive`, `check` (everything non-graphical), `clean`.
-=======
-Defines `KERNEL_OBJECTS` (every `.o` file to link) and per-file build rules,
-plus `iso` (via `grub-mkrescue`) and `run` (boots in QEMU with a display).
-**Added**: `run-headless` (same boot, no display, serial piped to stdout,
-wrapped in a 30-second `timeout` so a hang can't block CI forever) and
-`test` (runs `scripts/ci_boot_test.sh`).
->>>>>>> origin/main
 
 ### `iso/boot/grub/grub.cfg` (original)
 
 A minimal GRUB configuration: one menu entry, zero timeout, loads
 `spectreos.bin` as a multiboot kernel.
 
-<<<<<<< HEAD
-### `scripts/ci_boot_test.sh` **(added — verified)**
+### `scripts/ci_boot_test.sh` (added — verified)
 
 Boots headless under QEMU with a timeout, captures the serial log, and greps
 it for every subsystem's boot-time marker (`"ATA: OK"`, `"Filesystem: OK"`,
 ...), failing if any is missing or a `"KERNEL PANIC"` string appears. The RNG
 line accepts either the RDRAND or the entropy-pool message. It passes against
 the real kernel.
-=======
-### `scripts/ci_boot_test.sh` **(added — script logic verified, real boot never verified)**
 
-Boots headless under QEMU with a timeout, captures the serial log, and greps
-it against every subsystem's actual boot-time marker string (`"ATA: OK"`,
-`"Filesystem: OK"`, etc. — pulled directly from the literal strings in
-`kernel.c`, not guessed from memory), failing loudly if any marker is
-missing or if a `"KERNEL PANIC"` string appears anywhere in the log. Treats
-the RNG line specially (accepts either the hardware or the software-fallback
-variant, since which one appears is legitimately hardware-dependent, not a
-pass/fail signal). **Verified**: the script's own control-flow logic was
-tested by substituting a fake `qemu-system-i386` that emits a canned log
-instead of actually booting anything, run against four scenarios — a fully
-healthy log (passes), a log missing one marker (fails, names which one), a
-log containing a panic string (fails), and a completely empty log (fails
-with a specific diagnostic) — all four produced the correct exit code. What
-remains unverified is the thing being tested: an actual kernel boot.
->>>>>>> origin/main
-
-### `Dockerfile` **(added)**
+### `Dockerfile` (added)
 
 A reproducible Ubuntu 24.04-based build/test environment: `nasm`,
 `grub-pc-bin`, `xorriso`, `qemu-system-x86`, `build-essential`, and
@@ -816,7 +714,7 @@ A reproducible Ubuntu 24.04-based build/test environment: `nasm`,
 into the image, so editing code on the host doesn't require rebuilding the
 image — only a change to this file's package list does.
 
-### `.github/workflows/build-and-test.yml` **(added)**
+### `.github/workflows/build-and-test.yml` (added)
 
 Builds the Docker image and runs `make test` inside it on every push/PR,
 uploading the captured boot log as a build artifact regardless of pass/fail.
@@ -825,8 +723,7 @@ Python's PyYAML) otherwise interpret the bare word `on` as the boolean
 `true`, which is harmless for GitHub Actions' own parser but was removed
 as a needless ambiguity.
 
-<<<<<<< HEAD
-### `tests/crypto/` and `make unittest` **(added - no QEMU)**
+### `tests/crypto/` and `make unittest` (added - no QEMU)
 
 `test_crypto.c` compiles the real `sha256.c`, `hmac_sha256.c`, `pbkdf2.c`,
 `aes256.c`, `checksum.c` natively and checks them against `vectors.h`, which
@@ -834,7 +731,7 @@ as a needless ambiguity.
 `hashlib`/`hmac`, the `cryptography` package/OpenSSL; fixed seed, reproducible)
 plus published vectors. 22 checks.
 
-### `tests/auth_harness/` **(added - no QEMU)**
+### `tests/auth_harness/` (added - no QEMU)
 
 Compiles the real `auth.c` and crypto against in-memory stubs for the
 filesystem, terminal, shell, identity and RNG, and drives it through
@@ -843,14 +740,14 @@ counts hashing work. One scenario per process (auth caches its database in
 statics): signup rules, weak-RNG gating, legacy-database upgrade and
 equal-cost unknown-user login, corrupt database. 31 checks.
 
-### `src/kernel/selftest.c` and the `selftest` shell command **(added)**
+### `src/kernel/selftest.c` and the `selftest` shell command (added)
 
 32 in-kernel checks run in the real 32-bit environment: paging range logic,
 syscall pointer validation, ring-0 vs ring-3 (fabricated `INT 0x80` frames),
 RNG properties, and the sync primitives (`sync_self_test()` existed but was
 never called before).
 
-### `tests/interactive/run.py` and `make test-interactive` **(added)**
+### `tests/interactive/run.py` and `make test-interactive` (added)
 
 Boots the ISO headless on a fresh disk and types through QEMU's monitor
 (`sendkey`) while reading the serial log: signup validation, entropy
@@ -858,11 +755,10 @@ collection, account/identity creation, shell file commands, `netinfo` and a
 real `ping 10.0.2.2`, `crypttest`, `selftest`, then a second boot on the same
 disk for wrong-user, wrong-password and correct login and data persistence.
 
-=======
->>>>>>> origin/main
 ### `tests/fs_harness/` and `make fstest` **(added - runnable without QEMU)**
-Builds the real `src/kernel/fs.c`, plus a *frozen copy of the pre-encryption
-one* (`legacy/fs.c`, a fixture - do not "fix" it), as ordinary userspace
+
+Builds the real `src/kernel/fs.c`, plus a _frozen copy of the pre-encryption
+one_ (`legacy/fs.c`, a fixture - do not "fix" it), as ordinary userspace
 programs against a fake ATA disk backed by a plain file; each separate process
 run is a simulated reboot of a real disk image. 17 checks: a fresh disk is
 encrypted at rest (no plaintext anywhere in the raw image) and still readable
@@ -876,13 +772,12 @@ before the filesystem claims the next). Runs in CI before the boot test.
 
 ---
 
-## 17. `backup/phase-final/`
+## 17. Repository hygiene
 
-A snapshot of an earlier version of several core files (`gdt.c`, `idt.c`,
-`kernel.c`, `scheduler.c`, `shell.c`, etc.), left in the repository by
-whoever built the original project, predating any of the work described
-above. Not referenced by the build system (the `Makefile` only ever points
-at `src/`) — effectively inert reference material, not live code.
+The earlier `backup/phase-final/` snapshot no longer exists in the repository.
+Generated files (`build/`, `iso/spectreos.iso`, `disk.img`, `*.o`, `*.bin`) are
+excluded by `.gitignore` and must never be committed. Host-side test harnesses
+live under `tests/`; the kernel is built only from `src/`.
 
 ---
 
@@ -896,224 +791,29 @@ at `src/`) — effectively inert reference material, not live code.
 - **Fully independently verified**: every cryptographic primitive and the
   Internet checksum (Section 12), plus the memory-copy speedup (also
   Section 12) and the CI test script's own logic (Section 16).
-<<<<<<< HEAD
 - **Booted and tested end to end**: `make check` runs the host unit tests,
   the filesystem harness, the headless boot test, and a keyboard-driven QEMU
   session including real network traffic.
 - **Known, documented gaps** (see `SECURITY.md`): disk key stored beside the
-  data, CTR keystream reuse, no ring-3 userspace or per-process address
+  data, CTR keystream reuse, no TSS / ring-3 entry, no per-process address
   spaces, no per-user file permissions, symmetric-only identity.
-=======
-- **Compiles and links cleanly, but never actually booted**: the entire
-  project, as a whole — no `nasm`/`qemu`/network access existed in the
-  environment this was built in. `scripts/ci_boot_test.sh` and the GitHub
-  Actions workflow are what turn that from a permanent caveat into a
-  one-time gap, the first time someone with real hardware runs them.
->>>>>>> origin/main
 
-## SpectreOS Architecture
+---
 
-### 1. System model
-
-BIOS/firmware
-    │
-    ▼
-GRUB / Multiboot
-    │
-    ▼
-boot.asm
-    │
-    ▼
-kernel_main()
-    │
-    ├── CPU + interrupt foundation
-    │     ├── GDT
-    │     ├── IDT
-    │     ├── PIC
-    │     ├── PIT
-    │     └── TSS
-    │
-    ├── Memory
-    │     ├── Multiboot memory discovery
-    │     ├── PMM
-    │     └── Paging
-    │
-    ├── Storage
-    │     ├── ATA PIO
-    │     └── Persistent filesystem
-    │
-    ├── Execution
-    │     ├── Threads
-    │     ├── Processes
-    │     ├── Scheduler
-    │     └── Synchronization
-    │
-    ├── Kernel entry interfaces
-    │     └── INT 0x80 syscalls
-    │
-    ├── Input/output
-    │     ├── VGA terminal
-    │     ├── PS/2 keyboard
-    │     └── Shell / Nano
-    │
-    └── Early Ring 3/user-process groundwork
-
-## 2. Boot and initialization order
-
-`kernel_main()` disables interrupts during early initialization and brings the system up in dependency order.
-
-The current sequence is approximately:
-
-1. Clear the terminal and initialize basic hardware information.
-2. Validate the Multiboot magic value.
-3. Read Multiboot memory information.
-4. Install the GDT.
-5. Install the IDT.
-6. Remap the PIC and configure the PIT.
-7. Initialize physical-memory tracking.
-8. Enable the current paging setup.
-9. Detect and initialize ATA storage.
-10. Load or format the persistent filesystem.
-11. Initialize the keyboard subsystem.
-12. Initialize threads.
-13. Initialize the process table.
-14. Initialize scheduler state.
-15. Prepare the early user-process/Ring 3 prototype.
-16. Initialize the shell.
-17. Unmask keyboard/timer IRQs and enable interrupts.
-
-This ordering prevents drivers and higher-level code from assuming that the subsystems they depend on are already active.
-
-## 3. CPU and privilege foundation
-
-### GDT
-
-The GDT contains kernel and user code/data descriptors plus a TSS descriptor. The current selectors used by the kernel/user split are:
+## System model (current)
 
 ```text
-0x08  kernel code
-0x10  kernel data
-0x1B  user code
-0x23  user data
-0x28  TSS
+BIOS/firmware -> GRUB (Multiboot) -> boot.asm -> kernel_main()
+  |- CPU/interrupt foundation: GDT (5 entries, no TSS), IDT, PIC, PIT
+  |- Memory: Multiboot memory map, PMM, identity-mapped paging (all supervisor-only)
+  |- Storage: ATA PIO -> blockdev layer -> crypto_disk (AES-256-CTR) -> filesystem
+  |- Entropy/identity: RNG pool, PBKDF2 auth, symmetric machine identity
+  |- Networking: RTL8139 -> Ethernet -> ARP / IPv4 -> ICMP echo / UDP (polled)
+  |- Concurrency: threads, scheduler, spinlocks/mutexes/semaphores, thin processes
+  |- Syscalls: INT 0x80 (DPL 3 gate) with page-table-based pointer validation
+  `- Login gate -> shell (ring 0)
 ```
 
-The TSS provides the Ring 0 stack used during privilege transitions. The interface `gdt_set_kernel_stack()` also allows the kernel-stack pointer to be updated later as process/thread management matures.
-
-### IDT
-
-The IDT contains exception and hardware IRQ gates, plus a user-callable `INT 0x80` gate. The syscall gate is configured with a descriptor privilege level that allows Ring 3 code to invoke it.
-
-### Interrupt entry
-
-The common assembly path saves general-purpose registers with `PUSHA`, calls the corresponding C handler, restores registers, and returns with `IRETD`.
-
-The current syscall entry path is:
-
-```text
-user/kernel caller
-      │
-      └── INT 0x80
-             │
-             ▼
-          isr80
-             │
-          PUSHA
-             │
-             ▼
-      syscall_handler()
-             │
-             ▼
-      syscall_dispatch()
-             │
-          POPA / IRETD
-```
-
-## 4. Memory subsystem
-
-### Physical memory manager
-
-The PMM tracks physical frames at 4 KiB granularity and has a configured tracking ceiling of 128 MiB. Multiboot information is used during initialization rather than fabricating a memory size.
-
-### Paging
-
-The current paging foundation creates a page directory and first page table and identity-maps the initial low-memory range. User-accessible page permissions have been introduced in the upper portion of that initial mapping as Ring 3 groundwork.
-
-This is not yet a complete per-process virtual-memory system. Planned work includes independent address spaces, page-fault handling suitable for user processes, guarded user stacks, copy-on-write or explicit mapping APIs where appropriate, and user-pointer validation.
-
-## 5. Storage stack
-
-### ATA
-
-The current driver uses legacy primary-channel IDE/ATA PIO operations. It supports IDENTIFY plus 28-bit LBA sector reads and writes using 512-byte sectors.
-
-This is deliberately small and easy to reason about, but it is not a complete modern storage stack. Additional controllers, DMA, caching, error recovery, and broader device discovery are future work.
-
-### Filesystem
-
-The filesystem uses a fixed on-disk layout with:
-
-```text
-sector 0       superblock
-sectors 1-32   allocation bitmap
-sectors 33-96  inode table
-sector 97+     data region
-```
-
-The current filesystem supports up to 128 files. Inodes use fixed-size 256-byte records, and each inode contains 32 direct block references. Open-file handles track inode identity and current file position.
-
-This layout is intentionally simple and suitable for the current learning/OS-development stage. Journaling, crash recovery, permissions, directories beyond the current root model, larger files, and metadata concurrency are future work.
-
-## 6. Threads, processes, and scheduling
-
-### Threads
-
-The kernel maintains a fixed array of thread control structures. Each thread has a state, saved stack pointer, counters, priority metadata, and a private 4 KiB kernel stack.
-
-### Processes
-
-The current process layer maps a process record to a thread. It stores a PID, parent PID, state, entry address, user-stack metadata, and thread index.
-
-A small user program is linked into the kernel image for early Ring 3 experimentation. The process layer can create a user thread with a user code selector and an `IRETD` return frame. This establishes the mechanism needed for later user-space execution, but it is not yet a complete process loader or isolated multi-process environment.
-
-### Scheduler
-
-Three scheduling policies are implemented in the selection logic:
-
-- Round Robin
-- First-Come, First-Served (FCFS)
-- Priority selection
-
-The scheduler records runs and switches and can save the interrupted stack pointer. The current project intentionally treats context switching as an area for continued hardening rather than claiming a finished Unix-style process scheduler.
-
-## 7. Synchronization
-
-The synchronization layer currently provides:
-
-- spinlocks
-- mutexes with owner tracking
-- counting semaphores with bounded waiter storage
-
-The primitives are designed for low-level kernel use. A complete scheduler-aware blocking/wakeup model, interrupt-context rules, deadlock analysis, priority inheritance where needed, and broader stress testing remain future work.
-
-## 8. Syscall layer
-
-`syscall.c` separates the public wrapper API from the kernel-side dispatcher. Public `spectre_*` functions issue a real `INT 0x80` instruction with a small register-based ABI.
-
-The current syscall surface covers early terminal output, process ID, memory/CPU information, file operations, and basic control interfaces. Pointer validation and strict user/kernel buffer ownership are not complete, so the interface must currently be treated as an experimental kernel API rather than a hardened userspace ABI.
-
-## 9. Terminal, keyboard, and shell
-
-The terminal writes directly to VGA text memory at `0xB8000` and updates the VGA hardware cursor. The keyboard driver reads PS/2 scancodes from the keyboard controller and handles modifiers, editing keys, history navigation, and routing between the shell and Nano editor.
-
-The shell is intentionally small. It provides diagnostics, filesystem commands, process/thread visibility, system-call testing, and a full-screen text editor without requiring a graphical subsystem.
-
-## 10. Architectural priorities
-
-The next architectural upgrades should preserve clear boundaries between:
-
-```text
-hardware → kernel subsystems → process/thread layer → syscall boundary → user programs → higher-level SpectreOS services
-```
-
-In particular, higher-level identity, networking, communication, and decentralized-account features should be built on top of a stable userspace and security model rather than being coupled directly to early boot code.
+There is **no TSS** (`ltr` is never executed and no `esp0` is set), so no code can
+enter ring 3 and return through the syscall gate. No page carries the user bit.
+All processes are kernel threads in ring 0, as is the shell. See `SECURITY.md`.

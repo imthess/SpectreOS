@@ -4,10 +4,7 @@
 #include "hardware.h"
 #include "memory.h"
 #include "fs.h"
-<<<<<<< HEAD
 #include "paging.h"
-=======
->>>>>>> origin/main
 
 static uint16_t syscall_cursor = 0;
 
@@ -15,7 +12,6 @@ static uint16_t syscall_cursor = 0;
  * ------------------------------------------------------------
  * Pointer/length validation
  *
-<<<<<<< HEAD
  * Every pointer a syscall receives is checked against the LIVE
  * page tables (paging_range_ok) before the kernel touches it,
  * so a bad pointer is rejected with an error return instead of
@@ -46,39 +42,10 @@ static uint16_t syscall_cursor = 0;
 extern uint32_t _kernel_start;
 extern uint32_t _kernel_end;
 
-=======
- * There is no per-process address space yet (see the project
- * notes on why: that's a much larger, harder-to-verify piece of
- * work than this pass takes on), so "validate this pointer
- * belongs to the calling process's memory" isn't a meaningful
- * check to write here - there is only one address space, and
- * every syscall currently runs in it. What IS meaningful, and
- * cheap, and catches real classes of bug even in this single-
- * address-space world:
- *
- *   1. Reject NULL and near-NULL pointers (below
- *      SYSCALL_MIN_VALID_ADDRESS) outright, rather than letting
- *      them reach fs.c/memory.c and fault deep inside kernel
- *      logic with a less obvious stack trace. This is backed up
- *      by a real hardware guard now too - see the page-0
- *      unmapping in paging.c - so a NULL that slips past this
- *      check still faults safely rather than corrupting memory.
- *   2. Cap every unbounded-length operation (currently only
- *      syscall_write(), which walked a caller string until a
- *      NUL byte with no limit at all) so a bad or non-terminated
- *      pointer can't cause an unbounded read.
- *   3. Cap every caller-supplied size argument to a sane
- *      maximum before it reaches fs.c, as defense in depth on
- *      top of whatever fs.c already enforces internally.
- * ------------------------------------------------------------
- */
-
->>>>>>> origin/main
 #define SYSCALL_MIN_VALID_ADDRESS 0x1000u
 #define SYSCALL_MAX_STRING_LENGTH 4096u
 #define SYSCALL_MAX_IO_SIZE       65536u
 
-<<<<<<< HEAD
 /* Set by syscall_handler() for the duration of one dispatch. */
 static int syscall_caller_is_user = 0;
 
@@ -133,25 +100,10 @@ static int syscall_range_ok(
  * or no NUL appears within `max_length` bytes.
  */
 static int32_t syscall_string_length(
-=======
-static int syscall_ptr_is_valid(const void* ptr)
-{
-    uint32_t address = (uint32_t)(uintptr_t)ptr;
-
-    return address >= SYSCALL_MIN_VALID_ADDRESS;
-}
-
-/*
- * Bounded strnlen - never reads past `max_length` bytes even if
- * the caller's pointer is not NUL-terminated within that range.
- */
-static uint32_t syscall_bounded_string_length(
->>>>>>> origin/main
     const char* text,
     uint32_t max_length
 )
 {
-<<<<<<< HEAD
     uint32_t base = (uint32_t)(uintptr_t)text;
 
     for (uint32_t i = 0; i <= max_length; i++)
@@ -201,17 +153,6 @@ static int syscall_copy_string(
     }
 
     return 1;
-=======
-    uint32_t length = 0;
-
-    while (length < max_length &&
-           text[length] != '\0')
-    {
-        length++;
-    }
-
-    return length;
->>>>>>> origin/main
 }
 
 /*
@@ -276,11 +217,7 @@ static uint32_t do_syscall(
 
 static uint32_t syscall_hwinfo(cpu_info_t* info)
 {
-<<<<<<< HEAD
     if (!syscall_range_ok(info, sizeof(*info), 1))
-=======
-    if (!syscall_ptr_is_valid(info))
->>>>>>> origin/main
     {
         return 0;
     }
@@ -291,16 +228,11 @@ static uint32_t syscall_hwinfo(cpu_info_t* info)
 
 static uint32_t syscall_meminfo(memory_info_t* info)
 {
-<<<<<<< HEAD
     if (!syscall_range_ok(info, sizeof(*info), 1))
-=======
-    if (!syscall_ptr_is_valid(info))
->>>>>>> origin/main
     {
         return 0;
     }
 
-<<<<<<< HEAD
     /*
      * memory_get_info() follows the kernel-internal convention
      * (0 = success, -1 = error). The syscall ABI reports 1 on
@@ -308,14 +240,10 @@ static uint32_t syscall_meminfo(memory_info_t* info)
      * tell a bad pointer from a successful call.
      */
     return memory_get_info(info) == 0 ? 1u : 0u;
-=======
-    return memory_get_info(info);
->>>>>>> origin/main
 }
 
 static uint32_t syscall_write(const char* text)
 {
-<<<<<<< HEAD
     int32_t length =
         syscall_string_length(
             text,
@@ -323,30 +251,14 @@ static uint32_t syscall_write(const char* text)
         );
 
     if (length < 0)
-=======
-    if (!syscall_ptr_is_valid(text))
->>>>>>> origin/main
     {
         return 0;
     }
 
-<<<<<<< HEAD
     volatile uint16_t* video =
         (volatile uint16_t*)0xB8000;
 
     for (int32_t i = 0; i < length; i++)
-=======
-    uint32_t length =
-        syscall_bounded_string_length(
-            text,
-            SYSCALL_MAX_STRING_LENGTH
-        );
-
-    volatile uint16_t* video =
-        (volatile uint16_t*)0xB8000;
-
-    for (uint32_t i = 0; i < length; i++)
->>>>>>> origin/main
     {
         if (syscall_cursor >= 80 * 25)
             syscall_cursor = 0;
@@ -397,35 +309,21 @@ uint32_t syscall_dispatch(
             return 0;
 
         case SYS_OPEN:
-<<<<<<< HEAD
         {
             char name[FS_MAX_FILENAME + 1];
 
             if (!syscall_copy_string(
                     (const char*)arg1, name, sizeof(name)))
-=======
-            if (!syscall_ptr_is_valid((const void*)arg1))
->>>>>>> origin/main
             {
                 return (uint32_t)-1;
             }
 
-<<<<<<< HEAD
             return (uint32_t)fs_open(name);
         }
 
         case SYS_READ_FILE:
             if (arg3 > SYSCALL_MAX_IO_SIZE ||
                 !syscall_range_ok((void*)arg2, arg3, 1))
-=======
-            return (uint32_t)fs_open(
-                (const char*)arg1
-            );
-
-        case SYS_READ_FILE:
-            if (!syscall_ptr_is_valid((const void*)arg2) ||
-                arg3 > SYSCALL_MAX_IO_SIZE)
->>>>>>> origin/main
             {
                 return (uint32_t)-1;
             }
@@ -437,13 +335,8 @@ uint32_t syscall_dispatch(
             );
 
         case SYS_WRITE_FILE:
-<<<<<<< HEAD
             if (arg3 > SYSCALL_MAX_IO_SIZE ||
                 !syscall_range_ok((const void*)arg2, arg3, 0))
-=======
-            if (!syscall_ptr_is_valid((const void*)arg2) ||
-                arg3 > SYSCALL_MAX_IO_SIZE)
->>>>>>> origin/main
             {
                 return (uint32_t)-1;
             }
@@ -460,20 +353,15 @@ uint32_t syscall_dispatch(
             );
 
         case SYS_CREATE:
-<<<<<<< HEAD
         {
             char name[FS_MAX_FILENAME + 1];
 
             if (!syscall_copy_string(
                     (const char*)arg1, name, sizeof(name)))
-=======
-            if (!syscall_ptr_is_valid((const void*)arg1))
->>>>>>> origin/main
             {
                 return 0;
             }
 
-<<<<<<< HEAD
             return (uint32_t)fs_create(name);
         }
 
@@ -483,34 +371,16 @@ uint32_t syscall_dispatch(
 
             if (!syscall_copy_string(
                     (const char*)arg1, name, sizeof(name)))
-=======
-            return (uint32_t)fs_create(
-                (const char*)arg1
-            );
-
-        case SYS_DELETE:
-            if (!syscall_ptr_is_valid((const void*)arg1))
->>>>>>> origin/main
             {
                 return 0;
             }
 
-<<<<<<< HEAD
             return (uint32_t)fs_delete(name);
         }
 
         case SYS_LIST:
             if (arg2 > SYSCALL_MAX_IO_SIZE ||
                 !syscall_range_ok((void*)arg1, arg2, 1))
-=======
-            return (uint32_t)fs_delete(
-                (const char*)arg1
-            );
-
-        case SYS_LIST:
-            if (!syscall_ptr_is_valid((const void*)arg1) ||
-                arg2 > SYSCALL_MAX_IO_SIZE)
->>>>>>> origin/main
             {
                 return (uint32_t)-1;
             }
@@ -702,7 +572,6 @@ void syscall_handler(uint32_t* regs)
      * regs[5] = EDX
      * regs[6] = ECX
      * regs[7] = EAX
-<<<<<<< HEAD
      *
      * The CPU's own interrupt frame sits directly above PUSHA:
      *
@@ -713,10 +582,6 @@ void syscall_handler(uint32_t* regs)
 
     syscall_caller_is_user = (regs[9] & 3u) == 3u;
 
-=======
-     */
-
->>>>>>> origin/main
     uint32_t number = regs[7];
     uint32_t arg1   = regs[4];
     uint32_t arg2   = regs[6];
@@ -733,9 +598,6 @@ void syscall_handler(uint32_t* regs)
      * POPA restores EAX from this location.
      */
     regs[7] = result;
-<<<<<<< HEAD
 
     syscall_caller_is_user = 0;
-=======
->>>>>>> origin/main
 }

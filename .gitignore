@@ -1,35 +1,10 @@
-<<<<<<< HEAD
-# Build artifacts
-build/
-
-# Generated disk images
-disk.img
-disk_enc.img
-
-# Generated ISO and kernel binary
-iso/*.iso
-iso/boot/spectreos.bin
-
-# Compiled files
-*.o
-*.d
-*.bin
-
-# Backup files
-*.orig
-*.bak
-*~
-
-# Editor and OS files
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-=======
 # Build output
 build/
 *.o
 *.bin
+*.d
+disk_enc.img
+iso/*.iso
 
 # Generated boot/ISO output
 iso/boot/spectreos.bin
@@ -52,4 +27,3 @@ qemu.log
 
 # Local patch backups
 phase12_backup_*/
->>>>>>> origin/main

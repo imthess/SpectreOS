@@ -15,11 +15,7 @@
  * callers pass raw packet bytes here, not host-order integers.
  *
  * Verified against the well-known Wikipedia IPv4-header example
-<<<<<<< HEAD
  * (20-byte header -> checksum 0xb861) before being wired into
-=======
- * (20-byte header -> checksum 0xb1e6) before being wired into
->>>>>>> origin/main
  * ip.c.
  */
 uint32_t checksum_add(

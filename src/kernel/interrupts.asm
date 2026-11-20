@@ -384,11 +384,7 @@ isr80:
     add esp, 4
 
     popa
-<<<<<<< HEAD
     iretd
 
 ; Mark the stack non-executable (silences the linker warning).
 section .note.GNU-stack noalloc noexec nowrite progbits
-=======
-    iretd
->>>>>>> origin/main

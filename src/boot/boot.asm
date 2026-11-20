@@ -36,9 +36,6 @@ stack_bottom:
     resb 16384
 
 stack_top:
-<<<<<<< HEAD
 
 ; Mark the stack non-executable (silences the linker warning).
 section .note.GNU-stack noalloc noexec nowrite progbits
-=======
->>>>>>> origin/main

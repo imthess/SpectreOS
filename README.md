@@ -4,11 +4,7 @@ SpectreOS is a 32-bit x86 operating-system project built from scratch, primarily
 
 The repository is intentionally focused on operating-system fundamentals first: boot, CPU/interrupt setup, physical and virtual memory, storage, a persistent filesystem, keyboard/terminal input, threading, scheduling, synchronization, system calls, and early process/user-mode work.
 
-<<<<<<< HEAD
 > **Project status:** experimental / educational. SpectreOS boots and runs in QEMU, and every feature listed below is exercised by an automated test (see [Testing](#testing)). It is not a production operating system and should not be treated as a security-hardened environment — read [Security statement](#security-statement) for exactly what is and is not protected.
-=======
-> **Project status:** experimental / educational. SpectreOS is not a production-ready operating system and should not be treated as a security-hardened environment.
->>>>>>> origin/main
 
 ## Current implementation
 
@@ -18,18 +14,14 @@ The repository is intentionally focused on operating-system fundamentals first: 
 - 32-bit x86 GDT setup with kernel and user descriptors.
 - IDT and interrupt/exception handling.
 - PIC remapping and PIT timer setup.
-- TSS with a kernel stack for privilege transitions.
+- Ring-3 GDT descriptors and a DPL-3 `INT 0x80` gate exist, but there is **no TSS yet**, so nothing can enter ring 3 and return to the kernel.
 
 ### Memory
 
 - Multiboot-derived physical-memory detection.
 - Physical-frame tracking/allocator with a 4 KiB frame size.
 - Paging enabled with the current identity-mapped low-memory foundation.
-<<<<<<< HEAD
 - No page currently carries the user bit, so ring-3 code cannot run yet; per-process address spaces and isolation are future work. The syscall validator already enforces user-bit and kernel-image rules for ring-3 callers so that work needs no changes there.
-=======
-- Early Ring 3 page permissions are present as groundwork; complete per-process address spaces and isolation are still future work.
->>>>>>> origin/main
 
 ### Storage and filesystem
 
@@ -39,7 +31,6 @@ The repository is intentionally focused on operating-system fundamentals first: 
 - Fixed filesystem metadata with superblock, bitmap, inode table, and root-directory storage.
 - Basic file operations exposed through the shell and syscall layer.
 
-<<<<<<< HEAD
 ### Accounts, identity, and randomness
 
 - First boot walks you through creating an account; later boots show a login prompt. Passwords must be at least 8 characters.
@@ -56,20 +47,17 @@ A freshly formatted disk is encrypted with AES-256-CTR (constant-time implementa
 
 An RTL8139 driver with ARP, IPv4, ICMP echo, and UDP. Under QEMU's user-mode network (`10.0.2.15`, gateway `10.0.2.2`), `ping 10.0.2.2` completes a real round trip; the test suite checks this on every run.
 
-=======
->>>>>>> origin/main
 ### Threads, processes, and scheduling
 
 - Fixed-size kernel thread table.
 - Thread lifecycle states: unused, ready, running, blocked, terminated.
 - Per-thread kernel stacks and saved stack pointers.
-- Process table with PID, parent PID, entry point, user-stack metadata, and linked thread index.
-- Early user-process/Ring 3 scaffolding.
+- Process table with PID, parent PID, entry point, file-descriptor bookkeeping, and linked thread index (a thin wrapper over a kernel thread; every process runs in ring 0).
 - Scheduler policies: Round Robin, FCFS, and priority selection.
 - Scheduler run/switch accounting.
 - Spinlocks, mutexes, and semaphores with waiter tracking.
 
-The process and Ring 3 components in this repository are a development milestone rather than a completed Unix-style userspace. The next major work is robust context switching, separate address spaces, safe user-memory validation, program loading, and reliable user-to-kernel transitions.
+Processes here are kernel threads with bookkeeping, not a Unix-style userspace. The next major work is a TSS and ring-3 entry, separate address spaces, program loading, and reliable user-to-kernel transitions.
 
 ### System calls
 
@@ -105,7 +93,6 @@ Defined syscall IDs include:
 
 The syscall wrappers in `syscall.c` issue a real `INT 0x80`, so the current path is `int 0x80 -> isr80 -> syscall_handler -> syscall_dispatch`.
 
-<<<<<<< HEAD
 Every pointer argument is validated against the live page tables before the kernel touches it: not in the NULL guard page, no address-space wrap-around, every page present (and writable where the kernel writes), and — when the caller's code segment is ring 3 — user-accessible and outside the kernel image. Strings must be NUL-terminated within a bound and filenames that do not fit are rejected rather than truncated. Bad arguments return an error instead of faulting inside the kernel. Return convention: `SYS_HWINFO`/`SYS_MEMINFO`/`SYS_WRITE` return 1 on success and 0 on failure; file calls return -1 on error where noted in `syscall.h`.
 
 ## Shell
@@ -119,37 +106,11 @@ crypttest  selftest  threadtest  processtest  ps
 ```
 
 `selftest` runs the in-kernel regression suite (paging range checks, syscall pointer validation, ring-0/ring-3 caller handling, RNG, synchronisation primitives). `crypttest` re-runs the disk-encryption self-test.
-=======
-## Shell
-
-The CLI currently includes:
-
-```text
-help
-clear
-echo
-syscall
-threads
-hwinfo
-meminfo
-mem
-ticks
-ls
-touch <name>
-cat <name>
-write <name> <text>
-rm <name>
-cp <src> <dst>
-mv <src> <dst>
-nano <name>
-```
->>>>>>> origin/main
 
 The keyboard path includes PS/2 scancode handling, Shift, Caps Lock, Ctrl/Alt state tracking, cursor/editing controls, shell history navigation, and Nano input routing.
 
 ## Build and run
 
-<<<<<<< HEAD
 Requirements: `gcc` with 32-bit support, `nasm`, GNU `ld`, `grub-mkrescue` (with `xorriso` and `mtools`), `qemu-system-i386`, `python3`. On Ubuntu:
 
 ```bash
@@ -185,24 +146,6 @@ What each layer covers:
 | `fstest` | A formatted disk is encrypted at rest, survives a reboot, and legacy unencrypted disks still mount unchanged |
 | `test` | Kernel boots to the login prompt with no panic and every subsystem reports OK |
 | `test-interactive` | Account creation and entropy collection, login/rejection paths, files persisting across reboot, a real ARP + ICMP round trip through the NIC driver, the disk-encryption self-test, and the in-kernel `selftest` suite |
-=======
-The Makefile expects a 32-bit freestanding toolchain plus NASM, GNU `ld`, GRUB image tooling, and QEMU.
-
-Build the ISO:
-
-```bash
-make clean
-make
-```
-
-Run in QEMU:
-
-```bash
-make run
-```
-
-The default disk image is `disk.img`, and the ISO is generated at `iso/spectreos.iso`.
->>>>>>> origin/main
 
 ## Repository layout
 
@@ -211,7 +154,6 @@ src/
 ├── boot/          boot assembly and Multiboot entry
 ├── include/       kernel subsystem interfaces
 ├── kernel/        kernel subsystems and hardware drivers
-<<<<<<< HEAD
 └── shell/         command-line shell (shell.c editor+dispatch, shell_cmd_*.c commands)
 
 tests/             crypto/, auth_harness/ (host), fs_harness/ (host), interactive/ (QEMU)
@@ -221,33 +163,15 @@ build/             generated objects, kernel image, ISO staging (not committed)
 linker.ld          kernel linker layout
 Makefile           build, run and test rules
 ARCHITECTURE.md    file-by-file reference
-=======
-└── shell/         command-line shell
-
-backup/            historical source snapshots
-iso/               generated GRUB/ISO output
-build/             generated object files and kernel image
-linker.ld          kernel/user-program linker layout
-Makefile           build and QEMU run rules
-disk.img           local filesystem disk image
->>>>>>> origin/main
 ```
 
 ## Design direction
 
-<<<<<<< HEAD
 SpectreOS is being developed in layers. The immediate goal is a coherent small operating system rather than a collection of isolated demos. Higher-level features from the original SpectreOS concept—such as public-key identity, username-based discovery, trusted relationships, communication, broader hardware support, and portable/privacy-oriented operation—are later architectural work and are not represented as completed features in the current kernel.
 
 ## Security statement
 
-SpectreOS has real security *components* (password hashing with a modern work factor, constant-time comparison, an entropy-pool RNG, constant-time AES, validated syscall arguments, disk encryption), but it does **not** yet have the *boundaries* that make them meaningful against a hostile user: there is one shared address space, nothing runs in ring 3 yet, and the disk key lives next to the data it protects. Do not store anything sensitive on it. [`SECURITY.md`](SECURITY.md) lists each limitation precisely, with the work needed to remove it.
-=======
-SpectreOS is being developed in layers. The immediate goal is a coherent small operating system rather than a collection of isolated demos. Higher-level features from the original SpectreOS concept—such as cryptographic user identity, username-based discovery, trusted relationships, communication, broader hardware support, and portable/privacy-oriented operation—are treated as later architectural work and are not represented as completed features in the current kernel.
-
-## Security statement
-
-SpectreOS currently has significant security limitations. There is no claim of production-grade isolation, secure authentication, encrypted storage, network security, or privacy-preserving operation. See [`SECURITY.md`](SECURITY.md) for the current threat model and hardening roadmap.
->>>>>>> origin/main
+SpectreOS has real security *components* (password hashing with a modern work factor, constant-time comparison, an entropy-pool RNG, constant-time AES, validated syscall arguments, disk encryption), but it does **not** yet have the *boundaries* that make them meaningful against a hostile user: there is one shared address space, no TSS and nothing runs in ring 3, the disk key lives next to the data it protects (with CTR keystream reuse and no integrity check), ARP is unauthenticated, and the kernel is built without stack protection. Do not store anything sensitive on it. [`SECURITY.md`](SECURITY.md) lists each limitation precisely, with the work needed to remove it.
 
 ## Contributing
 

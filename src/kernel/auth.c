@@ -10,12 +10,8 @@
 #include "secure_wipe.h"
 
 #define AUTH_DB_FILE   "users.dat"
-<<<<<<< HEAD
 #define AUTH_DB_MAGIC     0x53415532u /* "SAU2": per-record iterations */
 #define AUTH_DB_MAGIC_V1  0x53415554u /* "SAUT": fixed 4096 iterations */
-=======
-#define AUTH_DB_MAGIC  0x53415554u /* "SAUT" */
->>>>>>> origin/main
 
 typedef struct
 {
@@ -23,10 +19,7 @@ typedef struct
     uint8_t salt[AUTH_SALT_SIZE];
     uint8_t hash[AUTH_HASH_SIZE];
     uint32_t in_use;
-<<<<<<< HEAD
     uint32_t iterations;
-=======
->>>>>>> origin/main
 
 } auth_record_t;
 
@@ -38,7 +31,6 @@ typedef struct
 
 } auth_database_t;
 
-<<<<<<< HEAD
 /* On-disk layout of version 1, kept only so it can be migrated. */
 typedef struct
 {
@@ -57,18 +49,13 @@ typedef struct
 
 } auth_database_v1_t;
 
-=======
->>>>>>> origin/main
 typedef enum
 {
     STAGE_INACTIVE,
     STAGE_SIGNUP_USERNAME,
     STAGE_SIGNUP_PASSWORD,
     STAGE_SIGNUP_CONFIRM,
-<<<<<<< HEAD
     STAGE_SIGNUP_ENTROPY,
-=======
->>>>>>> origin/main
     STAGE_LOGIN_USERNAME,
     STAGE_LOGIN_PASSWORD
 
@@ -204,7 +191,6 @@ static void auth_db_load(void)
 
         if (fd >= 0)
         {
-<<<<<<< HEAD
             /*
              * Read into a buffer big enough for either layout, then
              * decide by file size + magic which one it is.
@@ -215,25 +201,16 @@ static void auth_db_load(void)
                 auth_database_v1_t v1;
 
             } loaded;
-=======
-            auth_database_t loaded_db;
->>>>>>> origin/main
 
             int read_bytes =
                 fs_read(
                     fd,
-<<<<<<< HEAD
                     &loaded,
                     sizeof(loaded)
-=======
-                    &loaded_db,
-                    sizeof(loaded_db)
->>>>>>> origin/main
                 );
 
             fs_close(fd);
 
-<<<<<<< HEAD
             if (read_bytes == (int)sizeof(auth_database_t) &&
                 loaded.v2.magic == AUTH_DB_MAGIC)
             {
@@ -276,13 +253,6 @@ static void auth_db_load(void)
             }
 
             secure_wipe(&loaded, sizeof(loaded));
-=======
-            if (read_bytes == (int)sizeof(loaded_db) &&
-                loaded_db.magic == AUTH_DB_MAGIC)
-            {
-                db = loaded_db;
-            }
->>>>>>> origin/main
         }
     }
 
@@ -349,21 +319,14 @@ static int auth_create_user(
         AUTH_SALT_SIZE
     );
 
-<<<<<<< HEAD
     record->iterations = AUTH_PBKDF2_ITERATIONS;
 
-=======
->>>>>>> origin/main
     pbkdf2_hmac_sha256(
         (const uint8_t*)password,
         string_length(password),
         record->salt,
         AUTH_SALT_SIZE,
-<<<<<<< HEAD
         record->iterations,
-=======
-        AUTH_PBKDF2_ITERATIONS,
->>>>>>> origin/main
         record->hash,
         AUTH_HASH_SIZE
     );
@@ -383,7 +346,6 @@ static int auth_verify_user(
 {
     int slot = auth_find_user(username);
 
-<<<<<<< HEAD
     uint8_t computed[AUTH_HASH_SIZE];
 
     if (slot < 0)
@@ -407,30 +369,17 @@ static int auth_verify_user(
 
         secure_wipe(computed, AUTH_HASH_SIZE);
 
-=======
-    if (slot < 0)
-    {
->>>>>>> origin/main
         return 0;
     }
 
     auth_record_t* record = &db.users[slot];
 
-<<<<<<< HEAD
-=======
-    uint8_t computed[AUTH_HASH_SIZE];
-
->>>>>>> origin/main
     pbkdf2_hmac_sha256(
         (const uint8_t*)password,
         string_length(password),
         record->salt,
         AUTH_SALT_SIZE,
-<<<<<<< HEAD
         record->iterations,
-=======
-        AUTH_PBKDF2_ITERATIONS,
->>>>>>> origin/main
         computed,
         AUTH_HASH_SIZE
     );
@@ -444,7 +393,6 @@ static int auth_verify_user(
 
     secure_wipe(computed, AUTH_HASH_SIZE);
 
-<<<<<<< HEAD
     if (match && record->iterations < AUTH_PBKDF2_ITERATIONS)
     {
         /*
@@ -468,8 +416,6 @@ static int auth_verify_user(
         auth_db_save();
     }
 
-=======
->>>>>>> origin/main
     return match;
 }
 
@@ -489,7 +435,6 @@ static int auth_stage_is_secret(auth_stage_t s)
 
 static void auth_reset_line(void)
 {
-<<<<<<< HEAD
     /* The line may have held a password: wipe it, don't just cut it. */
     secure_wipe(line_buffer, sizeof(line_buffer));
 
@@ -604,10 +549,6 @@ static void auth_complete_signup(void)
     auth_finish_session(
         pending_username
     );
-=======
-    line_length = 0;
-    line_buffer[0] = '\0';
->>>>>>> origin/main
 }
 
 static void auth_prompt(const char* text)
@@ -664,7 +605,6 @@ int auth_login_active(void)
 
 void auth_keyboard_character(char c)
 {
-<<<<<<< HEAD
     if (stage == STAGE_SIGNUP_ENTROPY)
     {
         /*
@@ -684,8 +624,6 @@ void auth_keyboard_character(char c)
         return;
     }
 
-=======
->>>>>>> origin/main
     if (c < 32 || c > 126)
     {
         return;
@@ -794,7 +732,6 @@ void auth_keyboard_enter(void)
                 return;
             }
 
-<<<<<<< HEAD
             if (line_length < AUTH_PASSWORD_MIN)
             {
                 terminal_write(
@@ -809,8 +746,6 @@ void auth_keyboard_enter(void)
                 return;
             }
 
-=======
->>>>>>> origin/main
             string_copy_bounded(
                 pending_password,
                 line_buffer,
@@ -853,7 +788,6 @@ void auth_keyboard_enter(void)
                 return;
             }
 
-<<<<<<< HEAD
             if (!rng_is_seeded())
             {
                 /*
@@ -871,82 +805,12 @@ void auth_keyboard_enter(void)
                     "Type random keys until the counter "
                     "reaches 100%.\n"
                     "Entropy: 0%"
-=======
-            if (!auth_create_user(
-                    pending_username,
-                    pending_password))
-            {
-                terminal_write(
-                    "Could not create the "
-                    "account (disk full?). "
-                    "Try again.\n\n"
-                );
-
-                secure_wipe(
-                    pending_password,
-                    sizeof(pending_password)
-                );
-
-                stage = STAGE_SIGNUP_USERNAME;
-
-                auth_prompt(
-                    "Choose a username: "
->>>>>>> origin/main
                 );
 
                 return;
             }
 
-<<<<<<< HEAD
             auth_complete_signup();
-=======
-            /*
-             * The first account also becomes the
-             * machine's cryptographic identity.
-             */
-            if (!identity_exists())
-            {
-                identity_generate(
-                    pending_username
-                );
-            }
-
-            terminal_write(
-                "Account created.\n"
-            );
-
-            if (identity_is_loaded())
-            {
-                char fingerprint[
-                    IDENTITY_ID_SIZE * 2 + 1
-                ];
-
-                identity_get_fingerprint_hex(
-                    fingerprint,
-                    sizeof(fingerprint)
-                );
-
-                terminal_write(
-                    "Identity fingerprint: "
-                );
-
-                terminal_write(fingerprint);
-
-                terminal_write("\n");
-            }
-
-            terminal_write(
-                "\nWelcome, "
-            );
-
-            terminal_write(pending_username);
-
-            terminal_write(".\n");
-
-            auth_finish_session(
-                pending_username
-            );
->>>>>>> origin/main
 
             return;
         }

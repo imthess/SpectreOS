@@ -11,22 +11,9 @@
 # panic - fails the job. This is what turns "the code compiles"
 # into an actual pass/fail signal about whether the kernel boots.
 #
-<<<<<<< HEAD
 # Verified: this passes against the real kernel under QEMU. The
 # deeper end-to-end checks (login, files, networking) live in
 # tests/interactive/run.py (`make test-interactive`).
-=======
-# IMPORTANT CAVEAT: this has never actually been run. It was
-# written and reviewed carefully, but there is no QEMU available
-# in the environment that produced it (see README/DEVELOPMENT
-# notes) - so this script itself is in the same "written to spec,
-# unverified" category as the rtl8139 driver it tests. The first
-# time this runs for real is on whatever machine actually has the
-# toolchain installed - please treat a failure here as "check
-# whether the script has a bug" as much as "check whether the
-# kernel has a bug" until it's been run successfully at least
-# once.
->>>>>>> origin/main
 
 set -uo pipefail
 
